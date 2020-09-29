@@ -1,3 +1,4 @@
+assert = require 'assert'
 fs = require 'fs'
 path = require 'path'
 vm = require 'vm'
@@ -80,26 +81,62 @@ addMultilineHandler = (repl) ->
   origPrompt = repl._prompt ? repl.prompt
 
   multiline =
+    skipNextLine: no
     enabled: off
     initialPrompt: origPrompt.replace /^[^> ]*/, (x) -> x.replace /./g, '-'
     prompt: origPrompt.replace /^[^> ]*>?/, (x) -> x.replace /./g, '.'
     buffer: ''
 
+  finishMultilineBuffer = ->
+    assert.ok multiline.enabled
+    multiline.enabled = not multiline.enabled
+    repl.line = ''
+    repl.cursor = 0
+    repl.output.cursorTo 0
+    repl.output.clearLine 1
+    # XXX: multiline hack
+    multiline.buffer = multiline.buffer.replace /\n/g, '\uFF00'
+    repl.emit 'line', multiline.buffer
+    multiline.buffer = ''
+
+  resetOrigPrompt = (cmd) ->
+    repl.setPrompt origPrompt
+    nodeLineListener cmd
+
+  prepareMultilineInput = ->
+    assert.ok (not multiline.enabled)
+    multiline.enabled = not multiline.enabled
+    repl.setPrompt multiline.initialPrompt
+    repl.prompt true
+
   # Proxy node's line listener
   nodeLineListener = repl.listeners('line')[0]
   repl.removeListener 'line', nodeLineListener
   repl.on 'line', (cmd) ->
+    if multiline.skipNextLine
+      multiline.skipNextLine = no
+      return
+
+    # console.error {cmd}
     if multiline.enabled
-      multiline.buffer += "#{cmd}\n"
-      repl.setPrompt multiline.prompt
-      repl.prompt true
+      # console.error {cmd, s: 'here!!!'}
+      if '' in cmd
+        finishMultilineBuffer()
+        resetOrigPrompt ''
+      else
+        multiline.buffer += "#{cmd}\n"
+        repl.setPrompt multiline.prompt
+        repl.prompt true
     else
-      repl.setPrompt origPrompt
-      nodeLineListener cmd
+      if '' in cmd
+        prepareMultilineInput()
+      else
+        resetOrigPrompt cmd
     return
 
   # Handle Ctrl-v
   inputStream.on 'keypress', (char, key) ->
+    # console.error {char, key, multiline}
     return unless key and key.ctrl and not key.meta and not key.shift and key.name is 'v'
     if multiline.enabled
       # allow arbitrarily switching between modes any time before multiple lines are entered
@@ -111,19 +148,11 @@ addMultilineHandler = (repl) ->
       # no-op unless the current line is empty
       return if repl.line? and not repl.line.match /^\s*$/
       # eval, print, loop
-      multiline.enabled = not multiline.enabled
-      repl.line = ''
-      repl.cursor = 0
-      repl.output.cursorTo 0
-      repl.output.clearLine 1
-      # XXX: multiline hack
-      multiline.buffer = multiline.buffer.replace /\n/g, '\uFF00'
-      repl.emit 'line', multiline.buffer
-      multiline.buffer = ''
+      finishMultilineBuffer()
     else
-      multiline.enabled = not multiline.enabled
-      repl.setPrompt multiline.initialPrompt
-      repl.prompt true
+      # console.error 'here2!!'
+      multiline.skipNextLine = yes
+      prepareMultilineInput()
     return
 
 # Store and load command history from a file

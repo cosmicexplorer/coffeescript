@@ -1,0 +1,17 @@
+console.error({
+  initArgv: process.argv
+});
+
+[, , , ...process.argv] = process.argv;
+
+process.argv = ['coffee', '???', ...process.argv];
+
+console.log({
+  argv: process.argv
+});
+
+command.run();
+
+//# sourceMappingURL=data:application/json;base64,eyJ2ZXJzaW9uIjozLCJmaWxlIjoiZ2VuZXJhdGVkLWVudHJ5cG9pbnQtc2NyaXB0LmpzIiwic291cmNlUm9vdCI6Ii4uLy4uL3Byb2plY3RzL2FjdGl2ZS90dW5lLWNocm9tb3NvbWUiLCJzb3VyY2VzIjpbIi4uLy4uLy4uL3Rvb2xzL2NvZmZlZXNjcmlwdC9nZW5lcmF0ZWQtZW50cnlwb2ludC1zY3JpcHQuanMiXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBQUUsT0FBTyxDQUFDLEtBQVIsQ0FBYztFQUFBLFFBQUEsRUFBVSxPQUFPLENBQUM7QUFBbEIsQ0FBZDs7QUFDQSxDQUFDLEVBQUMsRUFBQyxFQUFDLEdBQUcsT0FBTyxDQUFDLElBQWYsQ0FBQSxHQUF1QixPQUFPLENBQUM7O0FBQy9CLE9BQU8sQ0FBQyxJQUFSLEdBQWUsQ0FBQyxRQUFELEVBQVcsS0FBWCxFQUFrQixHQUFHLE9BQU8sQ0FBQyxJQUE3Qjs7QUFDZixPQUFPLENBQUMsR0FBUixDQUFZO0VBQUEsSUFBQSxFQUFNLE9BQU8sQ0FBQztBQUFkLENBQVo7O0FBQ0EsT0FBTyxDQUFDLEdBQVIsQ0FBQSIsInNvdXJjZXNDb250ZW50IjpbIiAgY29uc29sZS5lcnJvciBpbml0QXJndjogcHJvY2Vzcy5hcmd2XG4gIFssLCwuLi5wcm9jZXNzLmFyZ3ZdID0gcHJvY2Vzcy5hcmd2XG4gIHByb2Nlc3MuYXJndiA9IFsnY29mZmVlJywgJz8/PycsIC4uLnByb2Nlc3MuYXJndl1cbiAgY29uc29sZS5sb2cgYXJndjogcHJvY2Vzcy5hcmd2XG4gIGNvbW1hbmQucnVuKClcbiJdfQ==
+//# sourceURL=/Users/dmcclanahan/tools/coffeescript/generated-entrypoint-script.js
+//# sourceMappingURL=generated-entrypoint-script.js.map

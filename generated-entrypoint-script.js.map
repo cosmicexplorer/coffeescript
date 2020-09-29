@@ -1,0 +1,13 @@
+{
+  "version": 3,
+  "file": "generated-entrypoint-script.js",
+  "sourceRoot": "../../projects/active/tune-chromosome",
+  "sources": [
+    "../../../tools/coffeescript/generated-entrypoint-script.js"
+  ],
+  "names": [],
+  "mappings": "AAAE,OAAO,CAAC,KAAR,CAAc;EAAA,QAAA,EAAU,OAAO,CAAC;AAAlB,CAAd;;AACA,CAAC,EAAC,EAAC,EAAC,GAAG,OAAO,CAAC,IAAf,CAAA,GAAuB,OAAO,CAAC;;AAC/B,OAAO,CAAC,IAAR,GAAe,CAAC,QAAD,EAAW,KAAX,EAAkB,GAAG,OAAO,CAAC,IAA7B;;AACf,OAAO,CAAC,GAAR,CAAY;EAAA,IAAA,EAAM,OAAO,CAAC;AAAd,CAAZ;;AACA,OAAO,CAAC,GAAR,CAAA",
+  "sourcesContent": [
+    "  console.error initArgv: process.argv\n  [,,,...process.argv] = process.argv\n  process.argv = ['coffee', '???', ...process.argv]\n  console.log argv: process.argv\n  command.run()\n"
+  ]
+}

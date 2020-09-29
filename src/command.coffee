@@ -443,7 +443,9 @@ printTokens = (tokens) ->
 # Use the [OptionParser module](optparse.html) to extract all options from
 # `process.argv` that are specified in `SWITCHES`.
 parseOptions = ->
+  console.error argv: process.argv
   o = opts      = optionParser.parse process.argv[2..]
+  console.error opts: opts
   o.compile     or=  !!o.output
   o.run         = not (o.compile or o.print or o.map)
   o.print       = !!  (o.print or (o.eval or o.stdio and o.compile))

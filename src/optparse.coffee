@@ -35,6 +35,7 @@ exports.OptionParser = class OptionParser
     # Note that executable scripts with a shebang (`#!`) line should use the
     # line `#!/usr/bin/env coffee`, or `#!/absolute/path/to/coffee`, without a
     # `--` argument after, because that will fail on Linux (see #3946).
+    console.error args: args
     {rules, positional} = normalizeArguments args, @rules.flagDict
     options = {}
 
