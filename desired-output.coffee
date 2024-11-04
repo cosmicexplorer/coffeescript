@@ -7,10 +7,6 @@ jsdoc:
  * /
 var f;
 
-/**
- * @param {number} x
- * @returns {number}
- * /
 f = function(x) {
   return x + 3;
 }
@@ -55,10 +51,6 @@ jsdoc:
  * /
 var g;
 
-/**
- * @param {{a: string}} _
- * @returns {string}
- * /
 g = function({a: x}) {
   return x;
 }
@@ -83,10 +75,6 @@ jsdoc:
  * /
 var h;
 
-/**
- * @param {{a: number, b?: number, c: {d?: number}, e: [f: number]}} _
- * @returns number
- * /
 h = function({a, b = 3, c: {d = 3}, e: [f]}) {
   return a + b + d;
 };
