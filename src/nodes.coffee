@@ -188,6 +188,7 @@ exports.Base = class Base
           fragments[fragments.length - 1].followingComments.push commentFragment
     fragments
 
+  # NB: note to self: this mechanic is relevant for destructuring!
   # If the code generation wishes to use the result of a complex expression
   # in multiple places, ensure that the expression is only ever evaluated once,
   # by assigning it to a temporary variable. Pass a level to precompile.
@@ -1158,6 +1159,12 @@ exports.PassthroughLiteral = class PassthroughLiteral extends Literal
 exports.IdentifierLiteral = class IdentifierLiteral extends Literal
   isAssignable: YES
 
+  propagateLhs: (setLhs) ->
+    @lhs = yes if setLhs
+    return no unless @lhs
+    # nothing to recurse into for an identifier
+    yes
+
   eachName: (iterator) ->
     iterator @
 
@@ -1383,6 +1390,7 @@ exports.Value = class Value extends Base
   isRange        : -> @bareLiteral(Range)
   shouldCache    : -> @hasProperties() or @base.shouldCache()
   isAssignable   : (opts) -> @hasProperties() or @base.isAssignable opts
+  isIdentifier   : -> @bareLiteral(IdentifierLiteral)
   isNumber       : -> @bareLiteral(NumberLiteral)
   isString       : -> @bareLiteral(StringLiteral)
   isRegex        : -> @bareLiteral(RegexLiteral)
@@ -2605,21 +2613,23 @@ exports.Obj = class Obj extends Base
 
   propagateLhs: (setLhs) ->
     @lhs = yes if setLhs
-    return unless @lhs
+    return no unless @lhs
 
     for property in @properties
+      # This is when a property is extracted and then destructured (or just renamed).
       if property instanceof Assign and property.context is 'object'
         {value} = property
         unwrappedValue = value.unwrapAll()
-        if unwrappedValue instanceof Arr or unwrappedValue instanceof Obj
-          unwrappedValue.propagateLhs yes
-        else if unwrappedValue instanceof Assign
-          unwrappedValue.nestedLhs = yes
-      else if property instanceof Assign
-        # Shorthand property with default, e.g. `{a = 1} = b`.
-        property.nestedLhs = yes
-      else if property instanceof Splat
-        property.propagateLhs yes
+        # Rename or other destructuring, e.g. `{a: b} = b`.
+        continue if unwrappedValue.propagateLhs? yes
+        continue
+      # Splats, e.g. `{...a} = b`.
+      continue if property.propagateLhs? yes
+      unwrappedProperty = property.unwrapAll()
+      # Identifiers, e.g. `{a} = b`.
+      continue if unwrappedProperty.propagateLhs? yes
+
+    yes
 
   astNode: (o) ->
     @getAndCheckSplatProps()
@@ -2765,14 +2775,15 @@ exports.Arr = class Arr extends Base
   # are too.
   propagateLhs: (setLhs) ->
     @lhs = yes if setLhs
-    return unless @lhs
+    return no unless @lhs
+
     for object in @objects
-      object.lhs = yes if object instanceof Splat or object instanceof Expansion
+      # Splat or Expansion, e.g. `[...a] = [1]`.
+      continue if object.propagateLhs? yes
       unwrappedObject = object.unwrapAll()
-      if unwrappedObject instanceof Arr or unwrappedObject instanceof Obj
-        unwrappedObject.propagateLhs yes
-      else if unwrappedObject instanceof Assign
-        unwrappedObject.nestedLhs = yes
+      continue if unwrappedObject.propagateLhs? yes
+
+    yes
 
   astType: ->
     if @lhs
@@ -3842,8 +3853,16 @@ exports.Assign = class Assign extends Base
 
   isDefaultAssignment: -> @param or @nestedLhs
 
-  propagateLhs: ->
-    return unless @variable?.isArray?() or @variable?.isObject?()
+  setNestedLhs: ->
+    @nestedLhs = yes
+
+  propagateLhs: (setLhs) ->
+    # If this is set, we're being called from within another destructuring expression, and we will
+    # have already recursed into our own body in our constructor.
+    if setLhs
+      return @setNestedLhs()
+
+    return no unless @variable?.isIdentifier?() or @variable?.isArray?() or @variable?.isObject?()
     # This is the left-hand side of an assignment; let `Arr` and `Obj`
     # know that, so that those nodes know that they’re assignable as
     # destructured variables.
@@ -4240,11 +4259,12 @@ exports.Code = class Code extends Base
 
   propagateLhs: ->
     for param in @params
+      continue unless param?
+      continue if param.propagateLhs? yes
       {name} = param
-      if name instanceof Arr or name instanceof Obj
-        name.propagateLhs yes
-      else if param instanceof Expansion
-        param.lhs = yes
+      continue unless name?
+      continue if name.propagateLhs? yes
+    yes
 
   astAddParamsToScope: (o) ->
     @eachParamName (name) ->
@@ -4476,7 +4496,7 @@ exports.Splat = class Splat extends Base
 
   propagateLhs: (setLhs) ->
     @lhs = yes if setLhs
-    return unless @lhs
+    return no unless @lhs
     @name.propagateLhs? yes
 
   astType: ->
@@ -4510,6 +4530,11 @@ exports.Expansion = class Expansion extends Base
 
   throwLhsError: ->
     @error 'Expansion must be used inside a destructuring assignment or parameter list'
+
+  propagateLhs: (setLhs) ->
+    @lhs = yes if setLhs
+    return no unless @lhs
+    yes
 
   astNode: (o) ->
     unless @lhs
