@@ -2660,15 +2660,21 @@ test "AST as expected for Code node", ->
     async: no
     id: null
 
-  testExpression '({[a]}) ->',
+  testExpression '({[@param]: x}) ->',
     type: 'FunctionExpression'
     params: [
       type: 'ObjectPattern'
       properties: [
         type: 'ObjectProperty'
-        key:   ID 'a', declaration: no
-        value: ID 'a', declaration: no
-        shorthand: yes
+        key:
+          type: 'MemberExpression'
+          object:
+            type: 'ThisExpression'
+            shorthand: yes
+          property: ID 'param', declaration: no
+          computed: no
+        value:  ID 'x', declaration: no
+        shorthand: no
         computed: yes
       ]
     ]
@@ -2683,10 +2689,8 @@ test "AST as expected for Code node", ->
       type: 'ObjectPattern'
       properties: [
         type: 'ObjectProperty'
-        key:
-          type: 'StringLiteral'
-          value: 'x'
-        value:  ID 'y', declaration: no
+        key:   STRING 'x'
+        value: ID 'y', declaration: no
         shorthand: no
         computed: yes
       ]
