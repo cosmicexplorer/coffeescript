@@ -179,6 +179,10 @@ grammar =
     o 'INDENT Body OUTDENT',                    -> $2
   ]
 
+  IdentifierBind: [
+    o 'IDENTIFIER_BIND',                        -> new IdentifierLiteralBind $1.toString()
+  ]
+
   Identifier: [
     o 'IDENTIFIER',                             -> new IdentifierLiteral $1
     o 'JSX_TAG',                                -> new JSXTag $1.toString(),
@@ -187,6 +191,10 @@ grammar =
                                                      closingTagSlashLocationData:          $1.closingTagSlashToken?[2]
                                                      closingTagNameLocationData:           $1.closingTagNameToken?[2]
                                                      closingTagClosingBracketLocationData: $1.closingTagClosingBracketToken?[2]
+  ]
+
+  PropertyBind: [
+    o 'PROPERTY_BIND',                          -> new PropertyNameBind $1.toString()
   ]
 
   Property: [
@@ -371,12 +379,185 @@ grammar =
     o '...',                                    -> new Expansion
   ]
 
-  # Function Parameters
-  ParamVar: [
+  # These are the only names we're allowed to bind in a destructuring expression from
+  # a function parameter.
+  ParamBindingTarget: [
     o 'Identifier'
     o 'ThisProperty'
-    o 'Array'
-    o 'Object'
+  ]
+
+  ParamArrayBindArg: [
+    o 'ParamBindingTarget', -> new Value $1
+    o 'ParamBindingTarget = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'ParamBindingTarget =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate [x] and [x...] via shift-reduce conflict.
+    o 'ParamBindingTarget ...', -> new Splat $1
+    o '... ParamBindingTarget', -> new Splat $2, {postfix: no}
+  ]
+
+  ParamArrayRecursiveDestructureArg: [
+    o 'ParamArrayDestructure', -> new Value $1
+    o 'ParamArrayDestructure = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'ParamArrayDestructure =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate [[x]] and [[x]...] via shift-reduce conflict.
+    o 'ParamArrayDestructure ...', -> new Splat $1
+    o '... ParamArrayDestructure', -> new Splat $2, {postfix: no}
+  ]
+
+  ParamArrayObjectDestructureArg: [
+    o 'ParamObjectDestructure', -> new Value $1
+    o 'ParamObjectDestructure = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'ParamObjectDestructure =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate [{x}] and [{x}...] via shift-reduce conflict.
+    o 'ParamObjectDestructure ...', -> new Splat $1
+    o '... ParamObjectDestructure', -> new Splat $2, {postfix: no}
+  ]
+
+  ParamArrayArg: [
+    o 'ParamArrayBindArg'
+    o 'ParamArrayRecursiveDestructureArg'
+    o 'ParamArrayObjectDestructureArg'
+    o '...', -> new Expansion
+  ]
+
+  ParamArrayArgElision: [
+    o 'ParamArrayArg',                          -> [$1]
+    o 'Elisions ParamArrayArg',                 -> $1.concat $2
+  ]
+
+  ParamArrayArgElisionList: [
+    o 'ParamArrayArgElision'
+    o 'ParamArrayArgElisionList , ParamArrayArgElision',                                          -> $1.concat $3
+    o 'ParamArrayArgElisionList OptComma TERMINATOR ParamArrayArgElision',                        -> $1.concat $4
+    o 'INDENT ParamArrayArgElisionList OptElisions OUTDENT',                            -> $2.concat $3
+    o 'ParamArrayArgElisionList OptElisions INDENT ParamArrayArgElisionList OptElisions OUTDENT', -> $1.concat $2, $4, $5
+  ]
+
+  ParamArrayDestructure: [
+    o '[ ]',                                      -> new Arr []
+    o '[ Elisions ]',                             -> new Arr $2
+    o '[ ParamArrayArgElisionList OptElisions ]', -> new Arr [].concat $2, $3
+  ]
+
+  ParamObjectDestructure: [
+    o '{ ParamAssignList OptComma }',                -> new Obj $2, $1.generated
+  ]
+
+  ParamAssignList: [
+    o '',                                                       -> []
+    o 'ParamAssignObj',                                              -> [$1]
+    o 'ParamAssignList , ParamAssignObj',                                 -> $1.concat $3
+    o 'ParamAssignList OptComma TERMINATOR ParamAssignObj',               -> $1.concat $4
+    o 'ParamAssignList OptComma INDENT ParamAssignList OptComma OUTDENT', -> $1.concat $4
+  ]
+
+  ParamPropertyDestructuringTarget: [
+    o 'ParamBindingTarget'
+    o 'ParamArrayDestructure'
+    o 'ParamObjectDestructure'
+  ]
+
+  ParamPropertyDestructuring: [
+    o 'ParamPropertyDestructuringTarget', -> new Value $1
+    o 'ParamPropertyDestructuringTarget = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                        operatorToken: LOC(2)(new Literal $2)
+    o 'ParamPropertyDestructuringTarget =
+       INDENT Expression OUTDENT',  -> new Assign LOC(1)(new Value $1), $4, null,
+                                             operatorToken: LOC(2)(new Literal $2)
+  ]
+
+  # None of these employ destructuring--they are either static field names, or looked up from the
+  # surrounding environment.
+  ParamPropertyExtractor: [
+    o 'Property'
+    o '[ Expression ]', -> new Value new ComputedPropertyName $2
+    o 'AlphaNumeric'
+  ]
+
+  ParamPropertyBinding: [
+    o 'ParamBindingTarget', -> new Value $1
+    o 'ParamBindingTarget = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'ParamBindingTarget =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate {x} and {x...} via shift-reduce conflict.
+    o 'ParamBindingTarget ...', -> new Splat $1
+    o '... ParamBindingTarget', -> new Splat $2, {postfix: no}
+  ]
+
+  ParamAssignObj: [
+    o 'ParamPropertyExtractor : ParamPropertyDestructuring', ->
+      new Assign LOC(1)(new Value $1), $3, 'object',
+            operatorToken: LOC(2)(new Literal $2)
+    o 'ParamPropertyBinding'
+    o 'ParamObjSplat'
+  ]
+
+  # NB: Non-destructured splat bindings were already covered in ParamPropertyBinding.
+  ParamObjSplatTarget: [
+    o 'ParamObjectDestructure'
+  ]
+
+  ParamObjSplat: [
+    o 'ParamObjSplatTarget ...', -> new Splat $1
+    o '... ParamObjSplatTarget', -> new Splat $2, {postfix: no}
+  ]
+
+  ###
+# Prior miscompiles (before this commit) from failing to sufficiently differentiate value vs place
+# expressions in function params (different than LHS of assignment--cannot assign to existing
+# values except this-properties e.g. `@x`).
+
+; coffee -c -b -s --no-header <<EOF
+({a: (x)}) -> x
+EOF
+# (function(arg) {
+#   var arg, x;
+#   x = arg.undefined;
+# });
+
+; coffee -c -b -s --no-header <<EOF
+({["x"]}) -> x
+EOF
+# (function({["x"]: "x"}) {
+#   return x;
+# });
+
+; coffee -c -b -s --no-header <<EOF
+([x[1]]) -> x
+EOF
+# (function([x[1]]) {
+#   return x;
+# });
+
+# This is an ICE!
+; coffee -c -b -s --no-header <<EOF
+({x: x[1]}) -> x
+EOF
+# TypeError: Cannot read properties of undefined (reading 'value')
+#     at atParam (.../lib/coffeescript/nodes.js:6543:54)
+# ...
+  ###
+
+  # Function Parameters
+  ParamVar: [
+    o 'ParamBindingTarget'
+    o 'ParamArrayDestructure'
+    o 'ParamObjectDestructure'
   ]
 
   # A splat that occurs outside of a parameter list.

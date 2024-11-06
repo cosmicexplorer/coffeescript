@@ -4439,8 +4439,6 @@ exports.Param = class Param extends Base
     name = if @name instanceof IdentifierBind
       @name.name.value
     else
-      # NB: this errors on code like `({x: x[1]}) -> x` (which also produces a js SyntaxError)!
-      # Let's fix the parser to avoid trying to bind to anything nontrivial!
       @name.unwrapAll().value
     message = isUnassignable name
     @name.error message if message
