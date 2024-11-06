@@ -126,7 +126,7 @@ exports.Lexer = class Lexer
     inJSXTag = @atJSXTag()
     regex = if inJSXTag then JSX_ATTRIBUTE else IDENTIFIER
     return 0 unless match = regex.exec @chunk
-    [input, id, colon] = match
+    [input, id, at, colon] = match
 
     # Preserve length of id for location data
     idLength = id.length
@@ -244,6 +244,12 @@ exports.Lexer = class Lexer
              'debugger'          then 'STATEMENT'
         when '&&', '||'          then id
         else  tag
+
+    if at
+      if tag is 'IDENTIFIER'
+        tag = 'IDENTIFIER_BIND'
+      else if tag is 'PROPERTY'
+        tag = 'PROPERTY_BIND'
 
     tagToken = @token tag, id, length: idLength, data: tokenData
     tagToken.origin = [tag, alias, tagToken[2]] if alias
@@ -1274,6 +1280,7 @@ BOM = 65279
 IDENTIFIER = /// ^
   (?!\d)
   ( (?: (?!\s)[$\w\x7f-\uffff] )+ )
+  ( @ )?  # Is this a destructuring name binding?
   ( [^\n\S]* : (?!:) )?  # Is this a property name?
 ///
 

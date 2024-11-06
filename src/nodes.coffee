@@ -1162,7 +1162,6 @@ exports.IdentifierLiteral = class IdentifierLiteral extends Literal
   propagateLhs: (setLhs) ->
     @lhs = yes if setLhs
     return no unless @lhs
-    # nothing to recurse into for an identifier
     yes
 
   eachName: (iterator) ->
@@ -1173,6 +1172,26 @@ exports.IdentifierLiteral = class IdentifierLiteral extends Literal
       'JSXIdentifier'
     else
       'Identifier'
+
+  astProperties: ->
+    return
+      name: @value
+      declaration: !!@isDeclaration
+
+exports.IdentifierLiteralBind = class IdentifierLiteralBind extends Literal
+  isAssignable: YES
+
+  propagateLhs: (setLhs) ->
+    @lhs = yes if setLhs
+    return no unless @lhs
+    yes
+
+  eachName: (iterator) ->
+    iterator @
+
+  astType: ->
+    throw new Error "jsx not supported for identifier binding" if @jsx
+    'IdentifierBind'
 
   astProperties: ->
     return
@@ -1192,6 +1211,26 @@ exports.PropertyName = class PropertyName extends Literal
     return
       name: @value
       declaration: no
+
+exports.PropertyNameBind = class PropertyNameBind extends Literal
+  isAssignable: YES
+
+  propagateLhs: (setLhs) ->
+    @lhs = yes if setLhs
+    return no unless @lhs
+    yes
+
+  eachName: (iterator) ->
+    iterator @
+
+  astType: ->
+    throw new Error "jsx not supported for property binding" if @jsx
+    'PropertyBind'
+
+  astProperties: ->
+    return
+      name: @value
+      declaration: !!@isDeclaration
 
 exports.ComputedPropertyName = class ComputedPropertyName extends PropertyName
   compileNode: (o) ->
@@ -3485,6 +3524,46 @@ exports.DynamicImportCall = class DynamicImportCall extends Call
     @checkArguments()
     super o
 
+#### IdentifierBind
+
+# The **IdentifierBind** is used like an identifier, but with an additional destructuring expression
+# applied after binding the identifier. It is *not* used for object keys, which employ
+# **PropertyBind**.
+exports.IdentifierBind = class IdentifierBind extends Base
+  constructor: (@name, @inner) ->
+    super()
+    @propagateLhs()
+
+  children: ['name', 'inner']
+
+  isAssignable: -> @name.isAssignable() and @inner.isAssignable()
+
+  shouldCache: -> not @isAssignable()
+
+  assigns: (name) ->
+    return yes if @name.assigns name
+    return yes if @inner.assigns name
+    no
+
+  eachName: (iterator) ->
+    @name.eachName iterator
+    @inner.eachName iterator
+
+  propagateLhs: ->
+    assert @name.propagateLhs yes
+    return yes if @inner.propagateLhs? yes
+    unwrappedInner = @inner.unwrapAll()
+    assert unwrappedInner.propagateLhs? yes
+    yes
+
+  astType: ->
+    'IdentifierBindExpression'
+
+  astProperties: (o) ->
+    return
+      name: @name.value
+      inner: @inner.ast(o, LEVEL_LIST)
+
 #### Assign
 
 # The **Assign** is used to assign a local variable to value, or to set the
@@ -4357,7 +4436,13 @@ exports.Param = class Param extends Base
   constructor: (@name, @value, @splat) ->
     super()
 
-    message = isUnassignable @name.unwrapAll().value
+    name = if @name instanceof IdentifierBind
+      @name.name.value
+    else
+      # NB: this errors on code like `({x: x[1]}) -> x` (which also produces a js SyntaxError)!
+      # Let's fix the parser to avoid trying to bind to anything nontrivial!
+      @name.unwrapAll().value
+    message = isUnassignable name
     @name.error message if message
     if @name instanceof Obj and @name.generated
       token = @name.objects[0].operatorToken
