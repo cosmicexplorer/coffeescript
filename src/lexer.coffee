@@ -814,6 +814,7 @@ exports.Lexer = class Lexer
     else if value in COMPOUND_ASSIGN then tag = 'COMPOUND_ASSIGN'
     else if value in CTOR            then tag = 'CTOR'
     else if value in TYPE_DESCRIPTOR then tag = 'TYPE_DESCRIPTOR'
+    else if value in PLACE_UNARY     then tag = 'PLACE_UNARY'
     else if value in UNARY_MATH      then tag = 'UNARY_MATH'
     else if value in SHIFT           then tag = 'SHIFT'
     else if value is '?' and prev?.spaced then tag = 'BIN?'

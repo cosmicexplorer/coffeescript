@@ -8,13 +8,14 @@ coffee = require './lib/coffeescript/index.js'
 rawTokens = (input) -> {type, value} for [type, value] in coffee.tokens input
 
 encodeTokens = (input) -> for {type, value} in rawTokens input
-  if type.match /^[A-Z_]+$/
+  value = value.toString()
+  if type.match(/^[A-Z_]+$/) or type is 'BIN?'
     if value.match /^\s+$/
       {whitespace: type, value: encodeURIComponent value}
     else
       {type, value}
   else
-    assert (type is value.toString()), JSON.stringify {type, value}
+    assert (type is value), JSON.stringify {type, value}
     {punct: value}
 
 tokenPrint = (input) -> for {punct, whitespace, type, value} in encodeTokens input

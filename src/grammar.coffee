@@ -1232,6 +1232,7 @@ EOF
   OperationLine: [
     o 'CTOR ExpressionLine',                   -> new Op $1, $2
     o 'TYPE_DESCRIPTOR ExpressionLine',                   -> new Op $1, $2
+    o 'PLACE_UNARY ExpressionLine', -> new Op $1, $2
     o 'DO ExpressionLine',                      -> new Op $1, $2
     o 'DO_IIFE CodeLine',                       -> new Op $1, $2
   ]
