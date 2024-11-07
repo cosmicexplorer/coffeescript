@@ -481,10 +481,20 @@ runTests = (CoffeeScript) ->
   files = fs.readdirSync('test').filter (filename) ->
     filename not in testFilesToSkip
 
+  filePatterns = (new RegExp p for p in (process.env.PAT ? '').split /,/ when p isnt '')
+  console.debug {filePatterns}
   startTime = Date.now()
   for file in files when helpers.isCoffee file
+    if filePatterns.length
+      found = no
+      for p in filePatterns
+        if p.exec file
+          found = yes
+          break
+      continue unless found
     literate = helpers.isLiterate file
     currentFile = filename = path.join 'test', file
+    console.debug currentFile
     code = fs.readFileSync filename
     try
       CoffeeScript.run code.toString(), {filename, literate}
