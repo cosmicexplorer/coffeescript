@@ -4985,8 +4985,7 @@ exports.Op = class Op extends Base
 
     # Ensure the unary operator is what we expect:
     {operator: leadingOp} = @first
-    unless leadingOp in ['typeof', 'delete', 'await', '!', '~', '+', '-']
-      @error "unrecognized unary op: #{leadingOp}"
+    return unless leadingOp in ['!', '~', '+', '-']
 
     # Map nodes to source content, and suggest a fix:
     {locationData: {range: [beg1, end1]}} = @first.first

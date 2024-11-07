@@ -2660,22 +2660,23 @@ test "AST as expected for Code node", ->
     async: no
     id: null
 
-  testExpression '({[a]}) ->',
-    type: 'FunctionExpression'
-    params: [
-      type: 'ObjectPattern'
-      properties: [
-        type: 'ObjectProperty'
-        key:   ID 'a', declaration: no
-        value: ID 'a', declaration: no
-        shorthand: yes
-        computed: yes
-      ]
-    ]
-    body: EMPTY_BLOCK
-    generator: no
-    async: no
-    id: null
+  # Any attempt to provide a computed name binding in a function param destructuring for an object
+  # argument produces broken js code:
+###
+; (coffee -c -b -s --no-header | node) <<EOF
+f = ({[a]}) ->
+f {}
+EOF
+[stdin]:3
+f = function({[a]: a}) {};
+               ^
+
+ReferenceError: Cannot access 'a' before initialization
+# ...
+###
+  try getAstExpression '({[a]}) ->'
+  catch e
+    equal e.stack, '[stdin]:1:6: error: unexpected }\n({[a]}) ->\n     ^'
 
   testExpression '(...a) ->',
     type: 'FunctionExpression'
