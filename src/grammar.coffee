@@ -1260,19 +1260,16 @@ EOF
                                                          originalOperator: $1.original
     o 'DO Expression',                          -> new Op $1, $2
     o 'UNARY_MATH Expression',                  -> new Op $1, $2
-    o '-     Expression',                      (-> new Op '-', $2), prec: 'UNARY_MATH'
-    o '+     Expression',                      (-> new Op '+', $2), prec: 'UNARY_MATH'
-
+    # Unary +/- is right-associative, and has higher precedence than binary operators, like !/~.
+    o 'ADD_SUB     Expression',                      (-> new Op $1, $2), prec: 'UNARY_MATH'
     o 'AWAIT Expression',                       -> new Op $1, $2
     o 'AWAIT INDENT Object OUTDENT',            -> new Op $1, $3
 
     # [The existential operator](https://coffeescript.org/#existential-operator).
     o 'Expression ?',                           -> new Existence $1
 
-    o 'Expression +  Expression',               -> new Op '+' , $1, $3
-    o 'Expression -  Expression',               -> new Op '-' , $1, $3
-
-    o 'Expression MATH     Expression',         -> new Op $2, $1, $3
+    o 'Expression ADD_SUB  Expression',               -> new Op $2, $1, $3
+    o 'Expression MULTIPLICATIVE     Expression',         -> new Op $2, $1, $3
     o 'Expression **       Expression',         -> new Op $2, $1, $3
     o 'Expression SHIFT    Expression',         -> new Op $2, $1, $3
     o 'Expression COMPARE  Expression',         -> new Op $2.toString(), $1, $3, undefined, originalOperator: $2.original
@@ -1309,10 +1306,10 @@ operators = [
   ['right',     'PLACE_UNARY', 'CTOR', 'TYPE_DESCRIPTOR', 'DO']
   ['nonassoc',  '++', '--']
   ['left',      '?']
-  ['right',     '**']
   ['right',     'UNARY_MATH']
-  ['left',      'MATH']
-  ['left',      '+', '-']
+  ['right',     '**']
+  ['left',      'MULTIPLICATIVE']
+  ['left',      'ADD_SUB']
   ['left',      'SHIFT']
   ['left',      'RELATION']
   ['left',      'COMPARE']

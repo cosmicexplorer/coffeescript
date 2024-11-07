@@ -808,7 +808,8 @@ exports.Lexer = class Lexer
       tag = 'TERMINATOR'
     else if value is '*' and prev?[0] is 'EXPORT'
       tag = 'EXPORT_ALL'
-    else if value in MATH            then tag = 'MATH'
+    else if value in ADD_SUB         then tag = 'ADD_SUB'
+    else if value in MULTIPLICATIVE  then tag = 'MULTIPLICATIVE'
     else if value in COMPARE         then tag = 'COMPARE'
     else if value in COMPOUND_ASSIGN then tag = 'COMPOUND_ASSIGN'
     else if value in CTOR            then tag = 'CTOR'
@@ -1457,8 +1458,6 @@ COMPARE = ['==', '!=', '<', '>', '<=', '>=']
 # Mathematical tokens.
 ADD_SUB = ['+', '-']
 MULTIPLICATIVE = ['*', '/', '%', '//', '%%']
-
-MATH = ['*', '/', '%', '//', '%%']
 
 FIELD_QUERY = ['IN', 'OF']
 

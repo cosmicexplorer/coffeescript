@@ -14,7 +14,7 @@ encodeTokens = (input) -> for {type, value} in rawTokens input
     else
       {type, value}
   else
-    assert (type is value), JSON.stringify {type, value}
+    assert (type is value.toString()), JSON.stringify {type, value}
     {punct: value}
 
 tokenPrint = (input) -> for {punct, whitespace, type, value} in encodeTokens input
