@@ -1646,6 +1646,8 @@ exports.MetaProperty = class MetaProperty extends Base
       property: @property.ast o
 
 #### Place
+
+# Codifying the separation of place and value into our compilable nodes!
 exports.Place = class Place extends Base
   constructor: (@target) ->
     super()
@@ -1659,6 +1661,19 @@ exports.Place = class Place extends Base
 
   # TODO: maybe do something with includeCommentFragments?
   # TODO: `jumps` is interesting--the point of a place is that it's not an expression!
+  # TODO: unfoldSoak might be cool for conditional matching at some point.
+
+  # TODO: might rework this entire API since we can distinguish between places and values now (?)
+  isAssignable: YES
+  assigns: (name) -> throw new TypeError 'unimplemented'
+  eachName: (iterator, {checkAssignability = yes} = {}) -> throw new TypeError 'unimplemented'
+
+
+#### ParamPlace
+
+# Function params have some more restrictions than other places and are parsed with slightly
+# modified rules.
+exports.ParamPlace = class ParamPlace extends Place
 
 
 #### HereComment
@@ -4861,6 +4876,7 @@ exports.Op = class Op extends Base
     @originalOperator is 'in'
 
   compileNode: (o) ->
+    @checkMisleadingPrecedence o
     if @isInOperator()
       inNode = new In @first, @second
       return (if @invertOperator then inNode.invert() else inNode).compileNode o
@@ -4964,9 +4980,30 @@ exports.Op = class Op extends Base
     if @operator is 'delete' and o.scope.check(@first.unwrapAll().value)
       @error 'delete operand may not be argument or var'
 
+  checkMisleadingPrecedence: ({code}) ->
+    return unless @operator is '**' and @first instanceof Op and @first.isUnary()
+
+    # Ensure the unary operator is what we expect:
+    {operator: leadingOp} = @first
+    unless leadingOp in ['typeof', 'delete', 'await', '!', '~', '+', '-']
+      @error "unrecognized unary op: #{leadingOp}"
+
+    # Map nodes to source content, and suggest a fix:
+    {locationData: {range: [beg1, end1]}} = @first.first
+    firstText = code[beg1...end1]
+    {locationData: {range: [beg2, end2]}} = @second
+    secondText = code[beg2...end2]
+
+    @error "Unary operator '#{leadingOp}' was used in exponentiation, but\n
+      JavaScript now requires parentheses to disambiguate operator precedence.\n
+      See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Unparenthesized_unary_expr_lhs_exponentiation.\n\n
+
+      This was previously compiled to '#{leadingOp}(#{firstText} ** #{secondText})' without error."
+
   astNode: (o) ->
     @checkContinuation o if @isYield()
     @checkDeleteOperand o
+    @checkMisleadingPrecedence o
     super o
 
   astType: ->

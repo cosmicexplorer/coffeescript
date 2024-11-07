@@ -70,6 +70,9 @@ exports.compile = compile = withPrettyErrors (code, options = {}) ->
 
   map = new SourceMap if generateSourceMap
 
+  # Ensure the source input is available for error message creation, e.g. from AST nodes.
+  options.code = code
+
   tokens = lexer.tokenize code, options
 
   # Pass a list of referenced variables, so that generated variables won’t get

@@ -862,6 +862,16 @@ test "invalid object keys", ->
       ^^
   '''
   assertErrorFormat '''
+    fun = ({
+      @param : null
+    }) ->
+      console.log "Oh hello!"
+  ''', '''
+    [stdin]:2:10: error: unexpected :
+      @param : null
+             ^
+  '''
+  assertErrorFormat '''
     {a=2}
   ''', '''
     [stdin]:1:3: error: unexpected =
@@ -918,16 +928,6 @@ test "#3926: implicit object in parameter list", ->
   '''
 
 test "#4130: unassignable in destructured param", ->
-  assertErrorFormat '''
-    fun = ({
-      @param : null
-    }) ->
-      console.log "Oh hello!"
-  ''', '''
-    [stdin]:2:12: error: keyword 'null' can't be assigned
-      @param : null
-               ^^^^
-  '''
   assertErrorFormat '''
     ({a: null}) ->
   ''', '''
