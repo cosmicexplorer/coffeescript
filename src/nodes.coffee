@@ -1645,6 +1645,22 @@ exports.MetaProperty = class MetaProperty extends Base
       meta: @meta.ast o, LEVEL_ACCESS
       property: @property.ast o
 
+#### Place
+exports.Place = class Place extends Base
+  constructor: (@target) ->
+    super()
+
+  children: ['target']
+
+  invert: -> throw new TypeError "place nodes cannot be inverted (#{@})"
+
+  # TODO: do we add properties like Value?
+  unwrap: -> @target
+
+  # TODO: maybe do something with includeCommentFragments?
+  # TODO: `jumps` is interesting--the point of a place is that it's not an expression!
+
+
 #### HereComment
 
 # Comment delimited by `###` (becoming `/* */`).

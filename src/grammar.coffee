@@ -144,6 +144,7 @@ grammar =
     o 'Value'
     o 'Code'
     o 'Operation'
+    o 'PlaceUpdateOperation'
     o 'Assign'
     o 'If'
     o 'Try'
@@ -379,6 +380,7 @@ grammar =
     o '...',                                    -> new Expansion
   ]
 
+  #!
   # These are the only names we're allowed to bind in a destructuring expression from
   # a function parameter.
   ParamBindingTarget: [
@@ -516,6 +518,7 @@ grammar =
     o 'ParamObjSplatTarget ...', -> new Splat $1
     o '... ParamObjSplatTarget', -> new Splat $2, {postfix: no}
   ]
+  #!
 
   ###
 # Prior miscompiles (before this commit) from failing to sufficiently differentiate value vs place
@@ -574,16 +577,175 @@ EOF
     o 'ThisProperty'
   ]
 
+  PlaceIdentifier: [
+    o 'IDENTIFIER', -> new IdentifierLiteral $1
+  ]
+
+  #!
+  AssignBindingTarget: [
+    o 'PlaceIdentifier'
+    # o 'Value Accessor',                         -> $1.add $2
+    # o 'Code Accessor',                          -> new Value($1).add $2
+    # o 'ThisProperty'
+  ]
+
+  AssignArrayBindArg: [
+    o 'AssignBindingTarget', -> new Value $1
+    o 'AssignBindingTarget = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'AssignBindingTarget =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate [x] and [x...] via shift-reduce conflict.
+    o 'AssignBindingTarget ...', -> new Splat $1
+    o '... AssignBindingTarget', -> new Splat $2, {postfix: no}
+  ]
+
+  AssignArrayRecursiveDestructureArg: [
+    o 'AssignArrayDestructure', -> new Value $1
+    o 'AssignArrayDestructure = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'AssignArrayDestructure =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate [[x]] and [[x]...] via shift-reduce conflict.
+    o 'AssignArrayDestructure ...', -> new Splat $1
+    o '... AssignArrayDestructure', -> new Splat $2, {postfix: no}
+  ]
+
+  AssignArrayObjectDestructureArg: [
+    o 'AssignObjectDestructure', -> new Value $1
+    o 'AssignObjectDestructure = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'AssignObjectDestructure =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate [{x}] and [{x}...] via shift-reduce conflict.
+    o 'AssignObjectDestructure ...', -> new Splat $1
+    o '... AssignObjectDestructure', -> new Splat $2, {postfix: no}
+  ]
+
+  AssignArrayArg: [
+    o 'AssignArrayBindArg'
+    o 'AssignArrayRecursiveDestructureArg'
+    o 'AssignArrayObjectDestructureArg'
+    o '...', -> new Expansion
+  ]
+
+  AssignArrayArgElision: [
+    o 'AssignArrayArg',                          -> [$1]
+    o 'Elisions AssignArrayArg',                 -> $1.concat $2
+  ]
+
+  AssignArrayArgElisionList: [
+    o 'AssignArrayArgElision'
+    o 'AssignArrayArgElisionList , AssignArrayArgElision',                                          -> $1.concat $3
+    o 'AssignArrayArgElisionList OptComma TERMINATOR AssignArrayArgElision',                        -> $1.concat $4
+    o 'INDENT AssignArrayArgElisionList OptElisions OUTDENT',                            -> $2.concat $3
+    o 'AssignArrayArgElisionList OptElisions INDENT AssignArrayArgElisionList OptElisions OUTDENT', -> $1.concat $2, $4, $5
+  ]
+
+  AssignArrayDestructure: [
+    o '[ ]',                                      -> new Arr []
+    o '[ Elisions ]',                             -> new Arr $2
+    o '[ AssignArrayArgElisionList OptElisions ]', -> new Arr [].concat $2, $3
+  ]
+
+  AssignObjectDestructure: [
+    o '{ AssignObjAssignList OptComma }',                -> new Obj $2, $1.generated
+  ]
+
+  AssignObjAssignList: [
+    o '',                                                       -> []
+    o 'AssignObjAssignObj',                                              -> [$1]
+    o 'AssignObjAssignList , AssignObjAssignObj',                                 -> $1.concat $3
+    o 'AssignObjAssignList OptComma TERMINATOR AssignObjAssignObj',               -> $1.concat $4
+    o 'AssignObjAssignList OptComma INDENT AssignObjAssignList OptComma OUTDENT', -> $1.concat $4
+  ]
+
+  AssignPropertyDestructuringTarget: [
+    o 'AssignBindingTarget'
+    o 'AssignArrayDestructure'
+    o 'AssignObjectDestructure'
+  ]
+
+  AssignPropertyDestructuring: [
+    o 'AssignPropertyDestructuringTarget', -> new Value $1
+    o 'AssignPropertyDestructuringTarget = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                        operatorToken: LOC(2)(new Literal $2)
+    o 'AssignPropertyDestructuringTarget =
+       INDENT Expression OUTDENT',  -> new Assign LOC(1)(new Value $1), $4, null,
+                                             operatorToken: LOC(2)(new Literal $2)
+  ]
+
+  # None of these employ destructuring--they are either static field names, or looked up from the
+  # surrounding environment.
+  AssignPropertyExtractor: [
+    o 'Property'
+    o '[ Expression ]', -> new Value new ComputedPropertyName $2
+    o 'AlphaNumeric'
+  ]
+
+  AssignPropertyBinding: [
+    o 'AssignBindingTarget', -> new Value $1
+    o 'AssignBindingTarget = Expression', -> new Assign LOC(1)(new Value $1), $3, null,
+                                                  operatorToken: LOC(2)(new Literal $2)
+    o 'AssignBindingTarget =
+       INDENT Expression OUTDENT', -> new Assign LOC(1)(new Value $1), $4, null,
+                                            operatorToken: LOC(2)(new Literal $2)
+    # NB: These need to be in here, with the same production name as the other cases, to
+    # disambiguate {x} and {x...} via shift-reduce conflict.
+    o 'AssignBindingTarget ...', -> new Splat $1
+    o '... AssignBindingTarget', -> new Splat $2, {postfix: no}
+  ]
+
+  AssignObjAssignObj: [
+    o 'AssignPropertyExtractor : AssignPropertyDestructuring', ->
+      new Assign LOC(1)(new Value $1), $3, 'object',
+            operatorToken: LOC(2)(new Literal $2)
+    o 'AssignPropertyBinding'
+    o 'AssignObjSplat'
+  ]
+
+  # NB: Non-destructured splat bindings were already covered in AssignPropertyBinding.
+  AssignObjSplatTarget: [
+    o 'AssignObjectDestructure'
+  ]
+
+  AssignObjSplat: [
+    o 'AssignObjSplatTarget ...', -> new Splat $1
+    o '... AssignObjSplatTarget', -> new Splat $2, {postfix: no}
+  ]
+  #!
+
   # Everything that can be assigned to.
   Assignable: [
     o 'SimpleAssignable'
     o 'Array',                                  -> new Value $1
     o 'Object',                                 -> new Value $1
+    # o 'AssignBindingTarget'
+    # o 'AssignArrayDestructure', -> new Value $1
+    # o 'AssignObjectDestructure', -> new Value $1
+  ]
+  # AssignBindingTarget
+
+  SimpleAssignableValue: [
+    o 'SimpleAssignable'
+    o 'Array',                                  -> new Value $1
+    o 'Object',                                 -> new Value $1
+    # o 'Identifier',                             -> new Value $1
+    # o 'ThisProperty'
+    # o 'Value Accessor',                         -> $1.add $2
+    # o 'Code Accessor',                          -> new Value($1).add $2
   ]
 
   # The types of things that can be treated as values -- assigned to, invoked
   # as functions, indexed into, named as a class, etc.
   Value: [
+    # o 'SimpleAssignableValue'
     o 'Assignable'
     o 'Literal',                                -> new Value $1
     o 'Parenthetical',                          -> new Value $1
@@ -1068,13 +1230,34 @@ EOF
   # -type rule, but in order to make the precedence binding possible, separate
   # rules are necessary.
   OperationLine: [
-    o 'UNARY ExpressionLine',                   -> new Op $1, $2
+    o 'CTOR ExpressionLine',                   -> new Op $1, $2
+    o 'TYPE_DESCRIPTOR ExpressionLine',                   -> new Op $1, $2
     o 'DO ExpressionLine',                      -> new Op $1, $2
     o 'DO_IIFE CodeLine',                       -> new Op $1, $2
   ]
 
+  PlaceUpdateOperation: [
+    o '-- SimpleAssignable',                    -> new Op '--', $2
+    o '++ SimpleAssignable',                    -> new Op '++', $2
+    o 'SimpleAssignable --',                    -> new Op '--', $1, null, true
+    o 'SimpleAssignable ++',                    -> new Op '++', $1, null, true
+
+    o 'SimpleAssignable COMPOUND_ASSIGN
+       Expression',                             -> new Assign $1, $3, $2.toString(), originalContext: $2.original
+    o 'SimpleAssignable COMPOUND_ASSIGN
+       INDENT Expression OUTDENT',              -> new Assign $1, $4, $2.toString(), originalContext: $2.original
+    o 'SimpleAssignable COMPOUND_ASSIGN TERMINATOR
+       Expression',                             -> new Assign $1, $4, $2.toString(), originalContext: $2.original
+  ]
+
   Operation: [
-    o 'UNARY Expression',                       -> new Op $1.toString(), $2, undefined, undefined, originalOperator: $1.original
+    # FIXME: generate a reduced expression form for `delete`!
+    o 'PLACE_UNARY Expression',                 -> new Op $1.toString(), $2, undefined, undefined,
+                                                         originalOperator: $1.original
+    o 'CTOR Expression',                       -> new Op $1.toString(), $2, undefined, undefined,
+                                                         originalOperator: $1.original
+    o 'TYPE_DESCRIPTOR Expression',                       -> new Op $1.toString(), $2, undefined, undefined,
+                                                         originalOperator: $1.original
     o 'DO Expression',                          -> new Op $1, $2
     o 'UNARY_MATH Expression',                  -> new Op $1, $2
     o '-     Expression',                      (-> new Op '-', $2), prec: 'UNARY_MATH'
@@ -1082,11 +1265,6 @@ EOF
 
     o 'AWAIT Expression',                       -> new Op $1, $2
     o 'AWAIT INDENT Object OUTDENT',            -> new Op $1, $3
-
-    o '-- SimpleAssignable',                    -> new Op '--', $2
-    o '++ SimpleAssignable',                    -> new Op '++', $2
-    o 'SimpleAssignable --',                    -> new Op '--', $1, null, true
-    o 'SimpleAssignable ++',                    -> new Op '++', $1, null, true
 
     # [The existential operator](https://coffeescript.org/#existential-operator).
     o 'Expression ?',                           -> new Existence $1
@@ -1105,13 +1283,6 @@ EOF
     o 'Expression ||       Expression',         -> new Op $2.toString(), $1, $3, undefined, originalOperator: $2.original
     o 'Expression BIN?     Expression',         -> new Op $2, $1, $3
     o 'Expression RELATION Expression',         -> new Op $2.toString(), $1, $3, undefined, invertOperator: $2.invert?.original ? $2.invert
-
-    o 'SimpleAssignable COMPOUND_ASSIGN
-       Expression',                             -> new Assign $1, $3, $2.toString(), originalContext: $2.original
-    o 'SimpleAssignable COMPOUND_ASSIGN
-       INDENT Expression OUTDENT',              -> new Assign $1, $4, $2.toString(), originalContext: $2.original
-    o 'SimpleAssignable COMPOUND_ASSIGN TERMINATOR
-       Expression',                             -> new Assign $1, $4, $2.toString(), originalContext: $2.original
   ]
 
   DoIife: [
@@ -1131,12 +1302,13 @@ EOF
 #     (2 + 3) * 4
 operators = [
   ['right',     'DO_IIFE']
+  ['nonassoc',  ':']
   ['left',      '.', '?.', '::', '?::']
+  ['left',      'INDEX_START', 'INDEX_END', 'INDEX_SOAK']
   ['left',      'CALL_START', 'CALL_END']
+  ['right',     'PLACE_UNARY', 'CTOR', 'TYPE_DESCRIPTOR', 'DO']
   ['nonassoc',  '++', '--']
   ['left',      '?']
-  ['right',     'UNARY', 'DO']
-  ['right',     'AWAIT']
   ['right',     '**']
   ['right',     'UNARY_MATH']
   ['left',      'MATH']
@@ -1151,8 +1323,13 @@ operators = [
   ['left',      '||']
   ['left',      'BIN?']
   ['nonassoc',  'INDENT', 'OUTDENT']
-  ['right',     'YIELD']
-  ['right',     '=', ':', 'COMPOUND_ASSIGN', 'RETURN', 'THROW', 'EXTENDS']
+  ['nonassoc',  'YIELD', 'AWAIT']
+  ['nonassoc',  'RETURN', 'THROW']
+  ['right',     'COMPOUND_ASSIGN', 'EXTENDS']
+  # TODO: property names like 'a:' should be tokenized separately maybe (how to handle 'a :'?)?
+  #       => i think 'a :' can be handled in the lexer!!!
+  #       what about '@a' as a single token (vs '@ a')?
+  ['right',     '=']
   ['right',     'FORIN', 'FOROF', 'FORFROM', 'BY', 'WHEN']
   ['right',     'IF', 'ELSE', 'FOR', 'WHILE', 'UNTIL', 'LOOP', 'SUPER', 'CLASS', 'IMPORT', 'EXPORT', 'DYNAMIC_IMPORT']
   ['left',      'POST_IF']

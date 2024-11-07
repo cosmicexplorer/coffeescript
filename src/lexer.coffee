@@ -192,17 +192,20 @@ exports.Lexer = class Lexer
         @seenImport = yes
       else if tag is 'EXPORT'
         @seenExport = yes
-      else if tag in UNARY
-        tag = 'UNARY'
+      else if tag in PLACE_UNARY
+        tag = 'PLACE_UNARY'
+      else if tag in CTOR
+        tag = 'CTOR'
+      else if tag in TYPE_DESCRIPTOR
+        tag = 'TYPE_DESCRIPTOR'
+      else if tag in FIELD_QUERY and @seenFor
+        tag = 'FOR' + tag
+        @seenFor = no
       else if tag in RELATION
-        if tag isnt 'INSTANCEOF' and @seenFor
-          tag = 'FOR' + tag
-          @seenFor = no
-        else
-          tag = 'RELATION'
-          if @value() is '!'
-            poppedToken = @tokens.pop()
-            tokenData.invert = poppedToken.data?.original ? poppedToken[1]
+        tag = 'RELATION'
+        if @value() is '!'
+          poppedToken = @tokens.pop()
+          tokenData.invert = poppedToken.data?.original ? poppedToken[1]
     else if tag is 'IDENTIFIER' and @seenFor and id is 'from' and
        isForFrom(prev)
       tag = 'FORFROM'
@@ -215,7 +218,7 @@ exports.Lexer = class Lexer
          @tokens.length > 1 and @tokens[@tokens.length - 2][0] not in ['.', '?.', '@']
         @error "'#{prev[1]}' cannot be used as a keyword, or as a function call
         without parentheses", prev[2]
-      else if prev[0] is '.' and @tokens.length > 1 and (prevprev = @tokens[@tokens.length - 2])[0] is 'UNARY' and prevprev[1] is 'new'
+      else if prev[0] is '.' and @tokens.length > 1 and (prevprev = @tokens[@tokens.length - 2])[0] is 'CTOR' and prevprev[1] is 'new'
         prevprev[0] = 'NEW_TARGET'
       else if prev[0] is '.' and @tokens.length > 1 and (prevprev = @tokens[@tokens.length - 2])[0] is 'IMPORT' and prevprev[1] is 'import'
         @seenImport = no
@@ -237,7 +240,7 @@ exports.Lexer = class Lexer
         id = COFFEE_ALIAS_MAP[id]
         tokenData.original = alias
       tag = switch id
-        when '!'                 then 'UNARY'
+        when '!'                 then 'UNARY_MATH'
         when '==', '!='          then 'COMPARE'
         when 'true', 'false'     then 'BOOL'
         when 'break', 'continue', \
@@ -808,7 +811,8 @@ exports.Lexer = class Lexer
     else if value in MATH            then tag = 'MATH'
     else if value in COMPARE         then tag = 'COMPARE'
     else if value in COMPOUND_ASSIGN then tag = 'COMPOUND_ASSIGN'
-    else if value in UNARY           then tag = 'UNARY'
+    else if value in CTOR            then tag = 'CTOR'
+    else if value in TYPE_DESCRIPTOR then tag = 'TYPE_DESCRIPTOR'
     else if value in UNARY_MATH      then tag = 'UNARY_MATH'
     else if value in SHIFT           then tag = 'SHIFT'
     else if value is '?' and prev?.spaced then tag = 'BIN?'
@@ -831,6 +835,7 @@ exports.Lexer = class Lexer
   # Token Manipulators
   # ------------------
 
+  # NB: VERY VERY USEFUL!!!!
   # A source of ambiguity in our grammar used to be parameter lists in function
   # definitions versus argument lists in function calls. Walk backwards, tagging
   # parameters specially in order to make things easier for the parser.
@@ -1434,7 +1439,12 @@ COMPOUND_ASSIGN = [
 ]
 
 # Unary tokens.
-UNARY = ['NEW', 'TYPEOF', 'DELETE']
+CTOR = ['NEW']
+TYPE_DESCRIPTOR = ['TYPEOF']
+
+# Unary operators which modify a limited format of place expression, and cannot accept
+# arbitrary expressions.
+PLACE_UNARY = ['DELETE']
 
 UNARY_MATH = ['!', '~']
 
@@ -1445,7 +1455,12 @@ SHIFT = ['<<', '>>', '>>>']
 COMPARE = ['==', '!=', '<', '>', '<=', '>=']
 
 # Mathematical tokens.
+ADD_SUB = ['+', '-']
+MULTIPLICATIVE = ['*', '/', '%', '//', '%%']
+
 MATH = ['*', '/', '%', '//', '%%']
+
+FIELD_QUERY = ['IN', 'OF']
 
 # Relational tokens that are negatable with `not` prefix.
 RELATION = ['IN', 'OF', 'INSTANCEOF']
