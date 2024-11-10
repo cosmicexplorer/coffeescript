@@ -230,12 +230,14 @@ parser.lexer =
 parser.yy = require './nodes'
 
 # Override Jison's default error handling function.
-parser.yy.parseError = (message, {token}) ->
+parser.yy.parseError = (message, {token, text, expected}) ->
   # Disregard Jison's message, it contains redundant line number information.
   # Disregard the token, we take its value directly from the lexer in case
   # the error is caused by a generated token which might refer to its origin.
   {errorToken, tokens} = parser
   [errorTag, errorText, errorLoc] = errorToken
+
+  console.debug {text, expected}
 
   errorText = switch
     when errorToken is tokens[tokens.length - 1]

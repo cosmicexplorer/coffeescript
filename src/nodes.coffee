@@ -3623,6 +3623,7 @@ exports.Assign = class Assign extends Base
     unfoldSoak o, this, 'variable'
 
   addScopeVariables: (o, {
+    # TODO: make this better ^_^!
     # During AST generation, we need to allow assignment to these constructs
     # that are considered “unassignable” during compile-to-JS, while still
     # flagging things like `[null] = b`.
