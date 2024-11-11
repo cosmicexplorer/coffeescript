@@ -78,7 +78,7 @@ option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn <
 setupConsole = ({level} = {}) ->
   global.cakeConsole = CakeConsole.stdio {level}
   global.console = global.cakeConsole
-  console.log "log level = #{level}"
+  console.info "log level = #{level}"
 
 consoleTask = (name, description, action) ->
   global.task name, description, ({level = 'log', ...opts} = {}) ->
@@ -108,9 +108,18 @@ run = (args, callback) ->
 buildParser = ->
   helpers.extend global, require 'util'
   require 'jison'
+
+  # Gather summary statistics about the grammar.
+  parser = require('./lib/coffeescript/grammar').parser
+  {symbols_, terminals_, productions_} = parser
+  countKeys = (obj) -> (Object.keys obj).length
+  numSyms = countKeys symbols_
+  numTerms = countKeys terminals_
+  numProds = countKeys productions_
+  console.info "parser created (#{numSyms} symbols, #{numTerms} terminals, #{numProds} productions)"
+
   # We don't need `moduleMain`, since the parser is unlikely to be run standalone.
-  parser = require('./lib/coffeescript/grammar').parser.generate(moduleMain: ->)
-  fs.writeFileSync 'lib/coffeescript/parser.js', parser
+  fs.writeFileSync 'lib/coffeescript/parser.js', parser.generate(moduleMain: ->)
 
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
