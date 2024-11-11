@@ -1,3 +1,4 @@
+oldConsole                = require 'console'
 fs                        = require 'fs'
 os                        = require 'os'
 path                      = require 'path'
@@ -30,6 +31,60 @@ header = """
 majorVersion = parseInt CoffeeScript.VERSION.split('.')[0], 10
 
 
+class CakeConsole extends oldConsole.Console
+  @LEVELS: ['debug', 'info', 'log', 'warn', 'error', 'trace']
+  @levelNumsMap: do =>
+    ret = {}
+    ret[k] = i for k, i in @LEVELS
+    ret
+  @validLevels: => "[#{(@LEVELS.map (l) -> "'#{l}'").join ', '}]"
+
+  constructor: ({@level = 'log', ...opts} = {}) ->
+    super opts
+    unless @level in @constructor.LEVELS
+      throw new TypeError "argument '#{@level}' was not a valid log level
+      (should be: #{@constructor.validLevels()})"
+
+  @getLevelNum: (l) => @levelNumsMap[l] ? throw new TypeError "invalid level #{l}"
+  curLevelNum: -> @constructor.getLevelNum @level
+  doesThisLevelApply: (l) -> @curLevelNum() <= @constructor.getLevelNum l
+
+  # TODO: for some reason this is done lazily in buildParser, so let's do the same here.
+  helpers.extend global, require 'util'
+  for l in @LEVELS
+    do (l) => @::[l] = (...args) ->
+      if @doesThisLevelApply l
+        # NB: it's literally impossible to extend Console and propagate to the parent class because
+        #     of some horrific unexplained initialization code used for the singleton console
+        #     object, which employs a very complex prototype chain that makes it impossible to do
+        #     the simple thing: https://github.com/nodejs/node/blob/17fae65c72321659390c4cbcd9ddaf248accb953/lib/internal/console/global.js#L29-L33.
+        #     Undo the prototype chain nonsense and bind the method back to our subclass.
+        (oldConsole[l].bind @) ...args
+      else global.format ...args
+
+  @stdio: ({
+    stdout = process.stdout,
+    stderr = process.stderr,
+    ...opts,
+  } = {}) => new @ {
+    stdout,
+    stderr,
+    ...opts
+  }
+
+
+option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn < error]'
+
+setupConsole = ({level} = {}) ->
+  global.cakeConsole = CakeConsole.stdio {level}
+  global.console = global.cakeConsole
+  console.log "log level = #{level}"
+
+consoleTask = (name, description, action) ->
+  global.task name, description, ({level = 'log', ...opts} = {}) ->
+    setupConsole {level}
+    action {...opts}
+
 # Log a message with a color.
 log = (message, color, explanation) ->
   console.log color + message + reset + ' ' + (explanation or '')
@@ -60,6 +115,7 @@ buildParser = ->
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
   files = ('src/' + file for file in files when file.match(/\.(lit)?coffee$/))
+  console.info {files}
   run ['-c', '-o', 'lib/coffeescript'].concat(files), callback
 
 build = (callback) ->
@@ -121,7 +177,7 @@ watchAndBuildAndTest = (harmony = no) ->
       buildAndTest no, harmony
 
 
-task 'build', 'build the CoffeeScript compiler from source', build
+consoleTask 'build', 'build the CoffeeScript compiler from source', build
 
 task 'build:parser', 'build the Jison parser only', buildParser
 
@@ -190,7 +246,7 @@ task 'build:browser:full', 'merge the built scripts into a single file for use i
   console.log "built ... running browser tests:"
   invoke 'test:browser'
 
-task 'build:watch', 'watch and continually rebuild the CoffeeScript compiler, running tests on each build', ->
+consoleTask 'build:watch', 'watch and continually rebuild the CoffeeScript compiler, running tests on each build', ->
   watchAndBuildAndTest()
 
 task 'build:watch:harmony', 'watch and continually rebuild the CoffeeScript compiler, running harmony tests on each build', ->
@@ -400,9 +456,27 @@ task 'bench', 'quick benchmark of compilation time', ->
   console.log "total  #{ fmt total }"
 
 
+class PatternSet
+  constructor: (patternStrings = []) ->
+    @matchers = (new RegExp p for p in patternStrings when p isnt '')
+
+  isEmpty: -> @matchers.length is 0
+
+  iterMatchers: -> @matchers[Symbol.iterator]()
+
+  matches: (arg) -> if @isEmpty() then yes else @iterMatchers().some (m) -> (m.exec arg)?
+
+  @fromCommaDelimitedList: (commaListStr) => new @ (commaListStr ? '').split /,/
+  @empty: => new @ []
+
+
 # Run the CoffeeScript test suite.
-runTests = (CoffeeScript) ->
+runTests = (CoffeeScript, {filePatterns, descPatterns} = {}) ->
   CoffeeScript.register() unless global.testingBrowser
+
+  filePatterns ?= PatternSet.empty()
+  descPatterns ?= PatternSet.empty()
+  console.log {filePatterns, descPatterns}
 
   # These are attached to `global` so that they’re accessible from within
   # `test/async.coffee`, which has an async-capable version of
@@ -410,6 +484,9 @@ runTests = (CoffeeScript) ->
   global.currentFile = null
   global.passedTests = 0
   global.failures    = []
+  global.filteredOut =
+    files: []
+    tests: []
 
   global[name] = func for name, func of require 'assert'
 
@@ -429,9 +506,22 @@ runTests = (CoffeeScript) ->
       error: err
       description: description
       source: fn.toString() if fn.toString?
+  onFilteredOut = (description, fn) ->
+    console.info "test '#{description}' was filtered out by patterns"
+    filteredOut.tests.push
+      filename: global.currentFile
+      description: description
+      fn: fn
+  onFilteredFile = (file) ->
+    console.info "file '#{file}' was filtered out by patterns"
+    filteredOut.files.push
+      filename: file
 
   # Our test helper function for delimiting different test cases.
   global.test = (description, fn) ->
+    unless descPatterns.matches description
+      onFilteredOut description, fn
+      return
     try
       fn.test = {description, currentFile}
       result = fn.call(fn)
@@ -445,6 +535,7 @@ runTests = (CoffeeScript) ->
         passedTests++
     catch err
       onFail description, fn, err
+    console.info "passed: #{description} in #{currentFile}"
 
   helpers.extend global, require './test/support/helpers'
 
@@ -483,6 +574,9 @@ runTests = (CoffeeScript) ->
 
   startTime = Date.now()
   for file in files when helpers.isCoffee file
+    unless filePatterns.matches file
+      onFilteredFile file
+      continue
     literate = helpers.isLiterate file
     currentFile = filename = path.join 'test', file
     code = fs.readFileSync filename
@@ -495,9 +589,14 @@ runTests = (CoffeeScript) ->
     Promise.reject() if failures.length isnt 0
 
 
-task 'test', 'run the CoffeeScript language test suite', ->
-  runTests(CoffeeScript).catch -> process.exit 1
+option '-f', '--file [REGEXP*]', 'test file patterns to match'
+option '-d', '--desc [REGEXP*]', 'test description patterns to match'
 
+consoleTask 'test', 'run the CoffeeScript language test suite', ({file, desc} = {}) ->
+  testOptions =
+    filePatterns: new PatternSet file
+    descPatterns: new PatternSet desc
+  runTests(CoffeeScript, testOptions).catch -> process.exit 1
 
 task 'test:browser', 'run the test suite against the modern browser compiler in a headless browser', ->
   # Create very simple web server to serve the two files we need.
