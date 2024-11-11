@@ -2,6 +2,7 @@ oldConsole                = require 'console'
 fs                        = require 'fs'
 os                        = require 'os'
 path                      = require 'path'
+{ performance }           = require 'perf_hooks'
 _                         = require 'underscore'
 { spawn, exec, execSync } = require 'child_process'
 CoffeeScript              = require './lib/coffeescript'
@@ -109,6 +110,8 @@ buildParser = ->
   helpers.extend global, require 'util'
   require 'jison'
 
+  startParserBuild = performance.now()
+
   # Gather summary statistics about the grammar.
   parser = require('./lib/coffeescript/grammar').parser
   {symbols_, terminals_, productions_} = parser
@@ -118,8 +121,15 @@ buildParser = ->
   numProds = countKeys productions_
   console.info "parser created (#{numSyms} symbols, #{numTerms} terminals, #{numProds} productions)"
 
+  loadGrammar = performance.now()
+  console.info "loading grammar: #{loadGrammar - startParserBuild} ms"
+
   # We don't need `moduleMain`, since the parser is unlikely to be run standalone.
   fs.writeFileSync 'lib/coffeescript/parser.js', parser.generate(moduleMain: ->)
+
+  parserBuildComplete = performance.now()
+  console.info "parser generation: #{parserBuildComplete - loadGrammar} ms"
+  console.info "full parser build time: #{parserBuildComplete - startParserBuild} ms"
 
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
