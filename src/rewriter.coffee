@@ -31,6 +31,62 @@ generate = (tag, value, origin, commentsToken) ->
   moveComments commentsToken, token if commentsToken
   token
 
+
+class WrappedTokenData
+  @val: Symbol 'val'
+  @data: Symbol 'data'
+  @generated: Symbol 'generated'
+
+  @defineInnerProp: (obj, sym, val, propOpts = {}) => Object.defineProperty obj, sym, {
+      configurable: no,
+      enumerable: no,
+      writable: yes,
+      ...propOpts,
+      value: val
+    }
+
+  constructor: (value, {data, generated} = {}) ->
+    throw new TypeError "value must be truthy: #{value}" unless value?
+    if data?
+      unless typeof data is 'object'
+        throw new TypeError "data must be a dict: #{data}"
+    if generated?
+      unless typeof generated is 'boolean'
+        throw new TypeError "generated must be a bool: #{generated}"
+
+    @constructor.defineInnerProp @, @constructor.val, value
+    @constructor.defineInnerProp @, @constructor.data, data
+    @constructor.defineInnerProp @, @constructor.generated, generated
+
+  innerVal: -> @[@constructor.val]
+  innerData: -> @[@constructor.data]
+  isGenerated: -> @[@constructor.generated] ? no
+
+  Object.defineProperty @::, Symbol.toStringTag,
+    get: -> @innerVal()
+
+  @::[Symbol.toPrimitive] = (hint) -> switch hint
+    when 'string' then @toString()
+    when 'number' then +@valueOf()
+    else
+      assert.equal hint, 'default', hint
+      @toString()
+
+  toString: -> @valueOf()
+  valueOf: -> @innerVal()
+
+  @withData: ({data, generated}) => (value) =>
+    ret = new @ value, {data, generated}
+    if data?
+      for own key, val of data
+        @defineInnerProp ret, key, val,
+          enumerable: yes
+    if generated
+      @defineInnerProp ret, 'generated', generated,
+        enumerable: yes
+    ret
+
+
 # The **Rewriter** class is used by the [Lexer](lexer.html), directly against
 # its internal array of tokens.
 exports.Rewriter = class Rewriter
@@ -761,9 +817,7 @@ exports.Rewriter = class Rewriter
   exposeTokenDataToGrammar: ->
     @scanTokens (token, i) ->
       if token.generated or (token.data and Object.keys(token.data).length isnt 0)
-        token[1] = new String token[1]
-        token[1][key] = val for own key, val of (token.data ? {})
-        token[1].generated = yes if token.generated
+        token[1] = (WrappedTokenData.withData token) token[1]
       1
 
   # Generate the indentation tokens, based on another token on the same line.

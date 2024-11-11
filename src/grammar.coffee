@@ -203,7 +203,7 @@ grammar =
   String: [
     o 'STRING', ->
       new StringLiteral(
-        $1.slice 1, -1 # strip artificial quotes and unwrap to primitive string
+        $1.toString().slice 1, -1 # strip artificial quotes and unwrap to primitive string
         quote:        $1.quote
         initialChunk: $1.initialChunk
         finalChunk:   $1.finalChunk
