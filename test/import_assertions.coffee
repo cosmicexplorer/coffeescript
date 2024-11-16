@@ -92,6 +92,6 @@ test "static export with assertion", ->
     export {
       profile
     } from './user.json' assert {
-        type: 'json'
-      };
+      type: 'json'
+    };
   """
