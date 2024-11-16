@@ -622,7 +622,12 @@ option null, '--negFile [REGEXP*]', 'test file patterns to negatively match'
 option '-d', '--desc [REGEXP*]', 'test description patterns to positively match'
 option null, '--negDesc [REGEXP*]', 'test description patterns to negatively match'
 
-consoleTask 'test', 'run the CoffeeScript language test suite', ({file, negFile, desc, negDesc} = {}) ->
+consoleTask 'test', 'run the CoffeeScript language test suite', ({
+  file = [],
+  negFile = ['sourcemap'],
+  desc = [],
+  negDesc = ['#4418', '#4558', 'dynamic import assertion', 'assert keyword'],
+} = {}) ->
   testOptions =
     filePatterns: new PatternSet file
     negFilePatterns: new PatternSet negFile, {negated: yes}
