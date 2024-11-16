@@ -41,6 +41,27 @@ compiled = (input) -> coffee.compile input, bare: yes
 
 evaled = (input) -> coffee.eval input
 
+recurseEntries = (o, cb) ->
+  queue = [o]
+  while (cur = queue.splice(0)).length > 0
+    for x in cur
+      unless cb x
+        return
+      switch
+        when coffee.helpers.isPlainObject x
+          queue.push (Object.values x)...
+        when Array.isArray x
+          queue.push x...
+
+fmtOut = (o) ->
+  if coffee.helpers.isString o
+    return process.stdout.write o
+
+  recurseEntries o, (x) ->
+    delete x?.locationData
+    yes
+  console.dir o, {depth: null}
+
 
 {TOK, AST, AST_PATH, COMP, EV} = process.env
 output = if TOK?
@@ -60,4 +81,4 @@ else if EV?
   evaled input
 else throw new Error('environment command not found')
 
-console.log output
+fmtOut output
