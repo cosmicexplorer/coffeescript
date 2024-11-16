@@ -53,17 +53,19 @@ recurseEntries = (o, cb) ->
         when Array.isArray x
           queue.push x...
 
-fmtOut = (o) ->
+fmtOut = (o, {depth, rmFields}) ->
   if coffee.helpers.isString o
     return process.stdout.write o
 
   recurseEntries o, (x) ->
-    delete x?.locationData
+    return yes unless x?
+    for f in rmFields
+      delete x.locationData
     yes
-  console.dir o, {depth: null}
+  console.dir o, {depth}
 
 
-{TOK, AST, AST_PATH, COMP, EV} = process.env
+{TOK, AST, AST_PATH, COMP, EV, DEPTH, RM_FIELDS} = process.env
 output = if TOK?
   switch TOK
     when 'raw' then rawTokens input
@@ -81,4 +83,8 @@ else if EV?
   evaled input
 else throw new Error('environment command not found')
 
-fmtOut output
+depth = if DEPTH? then parseInt DEPTH else null
+rmFields = if RM_FIELDS?
+  (s for s in RM_FIELDS.split ',' when s)
+else ['locationData']
+fmtOut output, {depth, rmFields}
