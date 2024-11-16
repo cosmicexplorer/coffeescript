@@ -39,6 +39,8 @@ nodes = (input) -> coffee.nodes input
 
 compiled = (input) -> coffee.compile input, bare: yes
 
+astCompile = (input) -> coffee.compile input, ast: yes
+
 evaled = (input) -> coffee.eval input
 
 recurseEntries = (o, cb) ->
@@ -53,19 +55,22 @@ recurseEntries = (o, cb) ->
         when Array.isArray x
           queue.push x...
 
-fmtOut = (o, {depth, rmFields}) ->
+fmtOut = (o, {depth, rmFields, stringify}) ->
   if coffee.helpers.isString o
     return process.stdout.write o
 
   recurseEntries o, (x) ->
     return yes unless x?
     for f in rmFields
-      delete x.locationData
+      delete x[f]
     yes
-  console.dir o, {depth}
+  if stringify
+    process.stdout.write JSON.stringify o, null, 2
+  else
+    console.dir o, {depth}
 
 
-{TOK, AST, AST_PATH, COMP, EV, DEPTH, RM_FIELDS} = process.env
+{TOK, AST, AST_PATH, COMP, ASTCOMP, EV, DEPTH, RM_FIELDS, STRINGIFY} = process.env
 output = if TOK?
   switch TOK
     when 'raw' then rawTokens input
@@ -79,6 +84,8 @@ else if AST?
     ret
 else if COMP?
   compiled input
+else if ASTCOMP?
+  astCompile input
 else if EV?
   evaled input
 else throw new Error('environment command not found')
@@ -86,5 +93,6 @@ else throw new Error('environment command not found')
 depth = if DEPTH? then parseInt DEPTH else null
 rmFields = if RM_FIELDS?
   (s for s in RM_FIELDS.split ',' when s)
-else ['locationData']
-fmtOut output, {depth, rmFields}
+else ['locationData', 'loc', 'range', 'start', 'end', 'tokens']
+stringify = STRINGIFY?
+fmtOut output, {depth, rmFields, stringify}
