@@ -2677,6 +2677,42 @@ test "AST as expected for Code node", ->
     async: no
     id: null
 
+  testExpression '({["x"]: y}) ->',
+    type: 'FunctionExpression'
+    params: [
+      type: 'ObjectPattern'
+      properties: [
+        type: 'ObjectProperty'
+        key:
+          type: 'StringLiteral'
+          value: 'x'
+        value:  ID 'y', declaration: no
+        shorthand: no
+        computed: yes
+      ]
+    ]
+    body: EMPTY_BLOCK
+    generator: no
+    async: no
+    id: null
+
+  testExpression '({[x]: y}) ->',
+    type: 'FunctionExpression'
+    params: [
+      type: 'ObjectPattern'
+      properties: [
+        type: 'ObjectProperty'
+        key:   ID 'x', declaration: no
+        value: ID 'y', declaration: no
+        shorthand: no
+        computed: yes
+      ]
+    ]
+    body: EMPTY_BLOCK
+    generator: no
+    async: no
+    id: null
+
   testExpression '(...a) ->',
     type: 'FunctionExpression'
     params: [
