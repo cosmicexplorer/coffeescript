@@ -476,26 +476,35 @@ task 'bench', 'quick benchmark of compilation time', ->
 
 
 class PatternSet
-  constructor: (patternStrings = []) ->
+  constructor: (patternStrings = [], {@negated = no} = {}) ->
     @matchers = (new RegExp p for p in patternStrings when p isnt '')
 
   isEmpty: -> @matchers.length is 0
 
   iterMatchers: -> @matchers[Symbol.iterator]()
 
-  matches: (arg) -> if @isEmpty() then yes else @iterMatchers().some (m) -> (m.exec arg)?
+  test_: (arg) -> @iterMatchers().some (m) -> m.exec arg
+
+  allows: (arg) ->
+    return yes if @isEmpty()
+    if @negated
+      not @test_ arg
+    else
+      @test_ arg
 
   @fromCommaDelimitedList: (commaListStr) => new @ (commaListStr ? '').split /,/
-  @empty: => new @ []
+  @empty: ({negated = no} = {}) => new @ [], {negated}
 
 
 # Run the CoffeeScript test suite.
-runTests = (CoffeeScript, {filePatterns, descPatterns} = {}) ->
+runTests = (CoffeeScript, {filePatterns, negFilePatterns, descPatterns, negDescPatterns} = {}) ->
   CoffeeScript.register() unless global.testingBrowser
 
   filePatterns ?= PatternSet.empty()
+  negFilePatterns ?= PatternSet.empty {negated: yes}
   descPatterns ?= PatternSet.empty()
-  console.log {filePatterns, descPatterns}
+  negDescPatterns ?= PatternSet.empty {negated: yes}
+  console.dir {filePatterns, negFilePatterns, descPatterns, negDescPatterns}
 
   # These are attached to `global` so that they’re accessible from within
   # `test/async.coffee`, which has an async-capable version of
@@ -538,7 +547,7 @@ runTests = (CoffeeScript, {filePatterns, descPatterns} = {}) ->
 
   # Our test helper function for delimiting different test cases.
   global.test = (description, fn) ->
-    unless descPatterns.matches description
+    unless (descPatterns.allows description) and (negDescPatterns.allows description)
       onFilteredOut description, fn
       return
     try
@@ -593,7 +602,7 @@ runTests = (CoffeeScript, {filePatterns, descPatterns} = {}) ->
 
   startTime = Date.now()
   for file in files when helpers.isCoffee file
-    unless filePatterns.matches file
+    unless (filePatterns.allows file) and (negFilePatterns.allows file)
       onFilteredFile file
       continue
     literate = helpers.isLiterate file
@@ -608,13 +617,17 @@ runTests = (CoffeeScript, {filePatterns, descPatterns} = {}) ->
     Promise.reject() if failures.length isnt 0
 
 
-option '-f', '--file [REGEXP*]', 'test file patterns to match'
-option '-d', '--desc [REGEXP*]', 'test description patterns to match'
+option '-f', '--file [REGEXP*]', 'test file patterns to positively match'
+option null, '--negFile [REGEXP*]', 'test file patterns to negatively match'
+option '-d', '--desc [REGEXP*]', 'test description patterns to positively match'
+option null, '--negDesc [REGEXP*]', 'test description patterns to negatively match'
 
-consoleTask 'test', 'run the CoffeeScript language test suite', ({file, desc} = {}) ->
+consoleTask 'test', 'run the CoffeeScript language test suite', ({file, negFile, desc, negDesc} = {}) ->
   testOptions =
     filePatterns: new PatternSet file
+    negFilePatterns: new PatternSet negFile, {negated: yes}
     descPatterns: new PatternSet desc
+    negDescPatterns: new PatternSet negDesc, {negated: yes}
   runTests(CoffeeScript, testOptions).catch -> process.exit 1
 
 task 'test:browser', 'run the test suite against the modern browser compiler in a headless browser', ->
