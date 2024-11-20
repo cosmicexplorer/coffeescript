@@ -11,14 +11,12 @@ CoffeeScript              = require './lib/coffeescript'
 helpers                   = require './lib/coffeescript/helpers'
 util                      = require 'util'
 process                   = require 'process'
-readline                  = require 'readline'
 
 sha256 = -> createHash 'sha256'
 
 checksumFile = (inPath) ->
   {dir, base} = path.parse inPath
   outPath = path.join dir, ".#{base}.sha256"
-  console.debug "checksum: '#{inPath}' => '#{outPath}'"
   outStream = fs.createReadStream inPath
     .pipe sha256()
     .setEncoding 'hex'
@@ -73,40 +71,47 @@ run = (args, callback) ->
 buildParser = ({
   grammarPath = './lib/coffeescript/grammar.js',
   parserPath = './lib/coffeescript/parser.js',
+  pkgPath = './package-lock.json',
   attestationPath = './lib/coffeescript/.jison-attestation.txt',
   scriptPath = './.jison-script.js',
 } = {}) ->
   helpers.extend global, require 'util'
+  readline = require 'readline'
 
   # (1) cache parser build
   #   (1.1) cache on grammar.coffee [DONE]
-  #   (1.2) cache on jison dep
+  #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
   # (2) cache file compilation
   # (3) make source maps work for errors in the coffeescript compiler!
 
-  constructAttestation = (grammar, parser) ->
+  constructAttestation = (grammar, parser, pkgLock) ->
     assert grammar.length is 64
     assert parser.length is 64
-    attestation = "#{grammar}:#{parser}"
-    assert attestation.length is 129
+    assert pkgLock.length is 64
+    attestation = "#{grammar}:#{parser}:#{pkgLock}"
+    assert attestation.length is 194
     attestation
-  writeAttestation = do (attestationPath) -> (grammar, parser) ->
-    attestation = constructAttestation grammar, parser
+  writeAttestation = do (attestationPath) -> (grammar, parser, pkgLock) ->
+    attestation = constructAttestation grammar, parser, pkgLock
     console.debug "writing new attestation '#{attestation}' to #{attestationPath} now..."
     await fs.promises.writeFile attestationPath, attestation, encoding: 'utf8'
 
   deconstructAttestation = (attestation) ->
-    assert attestation.length is 129
-    [grammar, sep, parser] = [attestation[...64], attestation[64], attestation[65..]]
-    assert sep is ':' and grammar.length is 64 and parser.length is 64
-    [grammar, parser]
-  readAttestation = do (attestationPath) -> (grammarChecksum, parserChecksum) ->
+    assert attestation.length is 194
+    [grammar, sep1, parser, sep2, pkgLock] = [
+      attestation[...64],
+      attestation[64],
+      attestation[65...129],
+      attestation[129],
+      attestation[130..],
+    ]
+    assert sep1 is ':' and sep2 is ':' and grammar.length is 64 and parser.length is 64 and pkgLock.length is 64
+    [grammar, parser, pkgLock]
+  readAttestation = do (attestationPath) -> (grammarChecksum, parserChecksum, pkgChecksum) ->
     try
-      console.debug "reading attestation file '#{attestationPath}' for parser compile caching..."
       attestation = await fs.promises.readFile attestationPath, encoding: 'utf8'
-      console.debug "attestation: #{attestation}"
-      [grammar, parser] = deconstructAttestation attestation
-      if grammar == grammarChecksum and parser == parserChecksum
+      [grammar, parser, pkgLock] = deconstructAttestation attestation
+      if grammar == grammarChecksum and parser == parserChecksum and pkgLock == pkgChecksum
         console.debug 'success! using cached parser...'
         return yes
       else
@@ -120,18 +125,21 @@ buildParser = ({
   console.debug "grammar checksum: #{grammarChecksum}"
   parserChecksum = await checksumFile parserPath
   console.debug "parser checksum: #{parserChecksum}"
+  pkgChecksum = await checksumFile pkgPath
+  console.debug "pkg checksum: #{pkgChecksum}"
 
-  return if await readAttestation grammarChecksum, parserChecksum
+  return if await readAttestation grammarChecksum, parserChecksum, pkgChecksum
 
+  # This function's contents are going to be written into a script to execute.
   jisonScript = ->
     assert = require 'assert'
     fs = require 'fs'
     # Gather summary statistics about the grammar.
-    { performance } = require 'perf_hooks'
-    require 'jison'
+    {performance} = require 'perf_hooks'
 
     {GRAMMAR_PATH, PARSER_PATH} = process.env
 
+    # Send messages over lines of JSON.
     sendMsg = (obj) ->
       msg = JSON.stringify obj
       process.stdout.write "#{msg}\n"
@@ -139,7 +147,9 @@ buildParser = ({
     startParserBuild = performance.now()
     sendMsg {startParserBuild}
 
-    parser = require(GRAMMAR_PATH).parser
+    # This will pull in Jison and other dependencies, although that's nowhere near as bad as
+    # executing Jison itself.
+    {parser} = require GRAMMAR_PATH
     {symbols_, terminals_, productions_} = parser
     countKeys = (obj) -> (Object.keys obj).length
     sendMsg
@@ -161,14 +171,15 @@ buildParser = ({
 
   scriptText = "(#{jisonScript.toString()}());"
   await fs.promises.writeFile scriptPath, scriptText, encoding: 'utf8'
-  child = spawn process.execPath, ['--experimental-default-type=commonjs', scriptPath],
+  child = spawn process.execPath, [scriptPath],
     env:
       GRAMMAR_PATH: grammarPath
       PARSER_PATH: parserPath
 
   child.stderr.pipe process.stderr
 
-  rl = readline.createInterface
+  # Read lines of JSON one by one from subprocess stdout.
+  rl = require('readline').createInterface
     input: child.stdout
     terminal: no
     crlfDelay: Infinity
@@ -191,10 +202,9 @@ buildParser = ({
       console.debug "parser generation: #{parserBuildComplete - loadGrammar} ms"
       console.debug "full parser build time: #{parserBuildComplete - startParserBuild} ms"
     else throw new Error "unrecognized fork msg: #{JSON.stringify msg}"
-  child.on 'error', (err) ->
-    console.error "subprocess issue: #{err}"
-    process.exit 1
-  code = await new Promise (res) -> child.on 'exit', res
+  code = await new Promise (res, rej) ->
+    child.on 'exit', res
+    child.on 'error', rej
   assert code is 0
   rl.close()
 
@@ -202,8 +212,9 @@ buildParser = ({
   console.debug "new parser checksum: #{parserChecksum}"
 
   assert grammarChecksum == await checksumFile grammarPath
+  assert pkgChecksum == await checksumFile pkgPath
 
-  await writeAttestation grammarChecksum, parserChecksum
+  await writeAttestation grammarChecksum, parserChecksum, pkgChecksum
 
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'

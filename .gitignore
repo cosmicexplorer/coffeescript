@@ -11,3 +11,4 @@ npm-debug.log*
 yarn.lock
 .DS_Store
 /.jison-script.js
+/.*.sha256
