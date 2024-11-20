@@ -54,17 +54,22 @@ log = (message, color, explanation) ->
 
 
 spawnNodeProcess = (args, output = 'stderr', callback) ->
-  relayOutput = (buffer) -> console.log buffer.toString()
-  proc =         spawn 'node', args
-  proc.stdout.on 'data', relayOutput if output is 'both' or output is 'stdout'
-  proc.stderr.on 'data', relayOutput if output is 'both' or output is 'stderr'
-  proc.on        'exit', (status) -> callback(status) if typeof callback is 'function'
+  proc = spawn process.execPath, args
+  switch output
+    when 'stdout'
+      proc.stdout.pipe process.stdout
+    when 'stderr'
+      proc.stderr.pipe process.stderr
+    when 'both'
+      proc.stdout.pipe process.stdout
+      proc.stderr.pipe process.stderr
+  proc.on 'exit', (status) -> callback?(status)
 
 # Run a CoffeeScript through our node/coffee interpreter.
 run = (args, callback) ->
-  spawnNodeProcess ['bin/coffee'].concat(args), 'stderr', (status) ->
+  spawnNodeProcess ['bin/coffee', ...args], 'stderr', (status) ->
     process.exit(1) if status isnt 0
-    callback() if typeof callback is 'function'
+    callback?()
 
 
 # Build the CoffeeScript language from source.
@@ -219,12 +224,11 @@ buildParser = ({
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
   files = ('src/' + file for file in files when file.match(/\.(lit)?coffee$/))
-  run ['-c', '-o', 'lib/coffeescript'].concat(files), callback
+  run ['-c', '-o', 'lib/coffeescript', ...files], callback
 
 build = (callback) ->
-  util.callbackify(buildParser) (err, attestation) ->
+  util.callbackify(buildParser) (err) ->
     throw err if err?
-    console.debug {attestation}
     buildExceptParser callback
 
 transpile = (code, options = {}) ->
