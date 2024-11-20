@@ -53,7 +53,7 @@ log = (message, color, explanation) ->
   console.log color + message + reset + ' ' + (explanation or '')
 
 
-spawnNodeProcess = (args, output = 'stderr', callback) ->
+spawnNodeProcess = (args, output = 'stderr') ->
   proc = spawn process.execPath, args
   switch output
     when 'stdout'
@@ -63,78 +63,44 @@ spawnNodeProcess = (args, output = 'stderr', callback) ->
     when 'both'
       proc.stdout.pipe process.stdout
       proc.stderr.pipe process.stderr
-  proc.on 'exit', (status) -> callback?(status)
+  new Promise (resolve, reject) ->
+    proc.on 'exit', (code, signal) -> resolve {code, signal}
+    proc.on 'error', (err) -> reject err
 
 # Run a CoffeeScript through our node/coffee interpreter.
-run = (args, callback) ->
-  spawnNodeProcess ['bin/coffee', ...args], 'stderr', (status) ->
-    process.exit(1) if status isnt 0
-    callback?()
+run = (args) ->
+  {code, signal} = await spawnNodeProcess ['bin/coffee', ...args], 'stderr'
+  process.exit(1) if code isnt 0
 
 
-# Build the CoffeeScript language from source.
-buildParser = ({
-  grammarPath = './lib/coffeescript/grammar.js',
-  parserPath = './lib/coffeescript/parser.js',
-  pkgPath = './package-lock.json',
-  attestationPath = './lib/coffeescript/.jison-attestation.txt',
-  scriptPath = './.jison-script.js',
-} = {}) ->
-  helpers.extend global, require 'util'
-  readline = require 'readline'
+buildAttestation = (inputPaths, outputPath, attestationPath, execute) ->
+  checksummedPaths = await Promise.all inputPaths.sort().map (p) -> await checksumFile p
+  outputChecksum = await checksumFile outputPath
 
-  # (1) cache parser build
-  #   (1.1) cache on grammar.coffee [DONE]
-  #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
-  # (2) cache file compilation
-  # (3) make source maps work for errors in the coffeescript compiler!
+  try
+    attestation = await fs.promises.readFile attestationPath, encoding: 'utf8'
+    [inputHashes..., outputHash] = attestation.split ':'
+    if (outputHash == outputChecksum and
+        [0...checksummedPaths.length].every (i) -> checksummedPaths[i] == inputHashes[i])
+       console.debug 'success! using cache...'
+       return yes
+    console.warn 'attestation was out of date, ...'
+    # TODO: ?????
+  catch e
+    assert e.code is 'ENOENT'
+    console.debug 'attestation file not found, ...'
 
-  constructAttestation = (grammar, parser, pkgLock) ->
-    assert grammar.length is 64
-    assert parser.length is 64
-    assert pkgLock.length is 64
-    attestation = "#{grammar}:#{parser}:#{pkgLock}"
-    assert attestation.length is 194
-    attestation
-  writeAttestation = do (attestationPath) -> (grammar, parser, pkgLock) ->
-    attestation = constructAttestation grammar, parser, pkgLock
-    console.debug "writing new attestation '#{attestation}' to #{attestationPath} now..."
-    await fs.promises.writeFile attestationPath, attestation, encoding: 'utf8'
+  await execute inputPaths, outputPath
+  newChecksummedPaths = await Promise.all inputPaths.sort().map (p) -> await checksumFile p
+  assert ([0...newChecksummedPaths.length].every (i) -> newChecksummedPaths[i] == checksummedPaths[i]), 11111
 
-  deconstructAttestation = (attestation) ->
-    assert attestation.length is 194
-    [grammar, sep1, parser, sep2, pkgLock] = [
-      attestation[...64],
-      attestation[64],
-      attestation[65...129],
-      attestation[129],
-      attestation[130..],
-    ]
-    assert sep1 is ':' and sep2 is ':' and grammar.length is 64 and parser.length is 64 and pkgLock.length is 64
-    [grammar, parser, pkgLock]
-  readAttestation = do (attestationPath) -> (grammarChecksum, parserChecksum, pkgChecksum) ->
-    try
-      attestation = await fs.promises.readFile attestationPath, encoding: 'utf8'
-      [grammar, parser, pkgLock] = deconstructAttestation attestation
-      if grammar == grammarChecksum and parser == parserChecksum and pkgLock == pkgChecksum
-        console.debug 'success! using cached parser...'
-        return yes
-      else
-        console.warn 'attestation was out of date, compiling jison grammar...'
-    catch e
-      assert e.code is 'ENOENT'
-      console.debug 'attestation file not found, compiling jison grammar...'
-    no
+  newOutputChecksum = await checksumFile outputPath
+  # assert newOutputChecksum isnt outputChecksum, 22222
+  attestation = [checksummedPaths..., newOutputChecksum].join ':'
+  await fs.promises.writeFile attestationPath, attestation, encoding: 'utf8'
 
-  grammarChecksum = await checksumFile grammarPath
-  console.debug "grammar checksum: #{grammarChecksum}"
-  parserChecksum = await checksumFile parserPath
-  console.debug "parser checksum: #{parserChecksum}"
-  pkgChecksum = await checksumFile pkgPath
-  console.debug "pkg checksum: #{pkgChecksum}"
 
-  return if await readAttestation grammarChecksum, parserChecksum, pkgChecksum
-
+generateParser = (scriptPath) -> ([grammarPath, pkgPath], parserPath) ->
   # This function's contents are going to be written into a script to execute.
   jisonScript = ->
     assert = require 'assert'
@@ -213,23 +179,33 @@ buildParser = ({
   assert code is 0
   rl.close()
 
-  parserChecksum = await checksumFile parserPath
-  console.debug "new parser checksum: #{parserChecksum}"
 
-  assert grammarChecksum == await checksumFile grammarPath
-  assert pkgChecksum == await checksumFile pkgPath
+# Build the CoffeeScript language from source.
+buildParser = ({
+  grammarPath = './lib/coffeescript/grammar.js',
+  parserPath = './lib/coffeescript/parser.js',
+  pkgPath = './package-lock.json',
+  attestationPath = './lib/coffeescript/.jison-attestation.txt',
+  scriptPath = './.jison-script.js',
+} = {}) ->
+  helpers.extend global, require 'util'
 
-  await writeAttestation grammarChecksum, parserChecksum, pkgChecksum
+  # (1) cache parser build
+  #   (1.1) cache on grammar.coffee [DONE]
+  #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
+  # (2) cache file compilation
+  # (3) make source maps work for errors in the coffeescript compiler!
 
-buildExceptParser = (callback) ->
-  files = fs.readdirSync 'src'
-  files = ('src/' + file for file in files when file.match(/\.(lit)?coffee$/))
-  run ['-c', '-o', 'lib/coffeescript', ...files], callback
+  await buildAttestation [grammarPath, pkgPath], parserPath, attestationPath, generateParser(scriptPath)
 
-build = (callback) ->
-  util.callbackify(buildParser) (err) ->
-    throw err if err?
-    buildExceptParser callback
+buildExceptParser = ->
+  files = for file in await fs.promises.readdir('src') when file.match(/\.(lit)?coffee$/)
+    path.join 'src', file
+  await run ['-c', '-o', 'lib/coffeescript', ...files]
+
+build = ->
+  await buildParser()
+  await buildExceptParser()
 
 transpile = (code, options = {}) ->
   options.minify =      process.env.MINIFY    isnt 'false'
@@ -268,11 +244,11 @@ buildAndTest = (includingParser = yes, harmony = no) ->
   buildArgs = ['bin/cake']
   buildArgs.push if includingParser then 'build' else 'build:except-parser'
   log "building#{if includingParser then ', including parser' else ''}...", green
-  spawnNodeProcess buildArgs, 'both', ->
-    log 'testing...', green
-    testArgs = if harmony then ['--harmony'] else []
-    testArgs = testArgs.concat ['bin/cake', 'test']
-    spawnNodeProcess testArgs, 'both'
+  await spawnNodeProcess buildArgs, 'both'
+  log 'testing...', green
+  testArgs = if harmony then ['--harmony'] else []
+  testArgs = testArgs.concat ['bin/cake', 'test']
+  await spawnNodeProcess testArgs, 'both'
 
 watchAndBuildAndTest = (harmony = no) ->
   buildAndTest yes, harmony
@@ -286,16 +262,19 @@ watchAndBuildAndTest = (harmony = no) ->
       buildAndTest no, harmony
 
 
-task 'build', 'build the CoffeeScript compiler from source', build
+task 'build', 'build the CoffeeScript compiler from source', ->
+  await build()
 
 task 'build:parser', 'build the Jison parser only', ->
   await buildParser()
 
-task 'build:except-parser', 'build the CoffeeScript compiler, except for the Jison parser', buildExceptParser
+task 'build:except-parser', 'build the CoffeeScript compiler, except for the Jison parser', ->
+  await buildExceptParser()
 
 task 'build:full', 'build the CoffeeScript compiler from source twice, and run the tests', ->
-  build ->
-    build testBuiltCode
+  await build()
+  await build()
+  testBuiltCode()
 
 task 'build:browser', 'merge the built scripts into a single file for use in a browser', ->
   code = """
