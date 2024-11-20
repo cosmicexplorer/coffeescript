@@ -70,7 +70,12 @@ run = (args, callback) ->
 
 
 # Build the CoffeeScript language from source.
-buildParser = ->
+buildParser = ({
+  grammarPath = './lib/coffeescript/grammar.js',
+  parserPath = './lib/coffeescript/parser.js',
+  attestationPath = './lib/coffeescript/.jison-attestation.txt',
+  scriptPath = './.jison-script.js',
+} = {}) ->
   helpers.extend global, require 'util'
 
   # (1) cache parser build
@@ -79,25 +84,44 @@ buildParser = ->
   # (2) cache file compilation
   # (3) make source maps work for errors in the coffeescript compiler!
 
-  grammarChecksum = await checksumFile 'lib/coffeescript/grammar.js'
-  console.debug "grammar checksum: #{grammarChecksum}"
-  parserChecksum = await checksumFile 'lib/coffeescript/parser.js'
-  console.debug "parser checksum: #{parserChecksum}"
-  try
-    console.debug 'reading attestation file for parser compile caching...'
-    attestation = await fs.promises.readFile 'lib/coffeescript/.jison-attestation.txt', encoding: 'utf8'
-    console.debug "attestation: #{attestation}"
+  constructAttestation = (grammar, parser) ->
+    assert grammar.length is 64
+    assert parser.length is 64
+    attestation = "#{grammar}:#{parser}"
+    assert attestation.length is 129
+    attestation
+  writeAttestation = do (attestationPath) -> (grammar, parser) ->
+    attestation = constructAttestation grammar, parser
+    console.debug "writing new attestation '#{attestation}' to #{attestationPath} now..."
+    await fs.promises.writeFile attestationPath, attestation, encoding: 'utf8'
+
+  deconstructAttestation = (attestation) ->
     assert attestation.length is 129
     [grammar, sep, parser] = [attestation[...64], attestation[64], attestation[65..]]
     assert sep is ':' and grammar.length is 64 and parser.length is 64
-    if grammar == grammarChecksum and parser == parserChecksum
-      console.debug 'success! using cached parser...'
-      return attestation
-    else
-      console.warn 'attestation was out of date, compiling jison grammar...'
-  catch e
-    assert e.code is 'ENOENT'
-    console.debug 'attestation file not found, compiling jison grammar...'
+    [grammar, parser]
+  readAttestation = do (attestationPath) -> (grammarChecksum, parserChecksum) ->
+    try
+      console.debug "reading attestation file '#{attestationPath}' for parser compile caching..."
+      attestation = await fs.promises.readFile attestationPath, encoding: 'utf8'
+      console.debug "attestation: #{attestation}"
+      [grammar, parser] = deconstructAttestation attestation
+      if grammar == grammarChecksum and parser == parserChecksum
+        console.debug 'success! using cached parser...'
+        return yes
+      else
+        console.warn 'attestation was out of date, compiling jison grammar...'
+    catch e
+      assert e.code is 'ENOENT'
+      console.debug 'attestation file not found, compiling jison grammar...'
+    no
+
+  grammarChecksum = await checksumFile grammarPath
+  console.debug "grammar checksum: #{grammarChecksum}"
+  parserChecksum = await checksumFile parserPath
+  console.debug "parser checksum: #{parserChecksum}"
+
+  return if await readAttestation grammarChecksum, parserChecksum
 
   jisonScript = ->
     assert = require 'assert'
@@ -106,6 +130,8 @@ buildParser = ->
     { performance } = require 'perf_hooks'
     require 'jison'
 
+    {GRAMMAR_PATH, PARSER_PATH} = process.env
+
     sendMsg = (obj) ->
       msg = JSON.stringify obj
       process.stdout.write "#{msg}\n"
@@ -113,7 +139,7 @@ buildParser = ->
     startParserBuild = performance.now()
     sendMsg {startParserBuild}
 
-    parser = require('./lib/coffeescript/grammar').parser
+    parser = require(GRAMMAR_PATH).parser
     {symbols_, terminals_, productions_} = parser
     countKeys = (obj) -> (Object.keys obj).length
     sendMsg
@@ -126,7 +152,7 @@ buildParser = ->
 
     # We don't need `moduleMain`, since the parser is unlikely to be run standalone.
     parserText = parser.generate(moduleMain: ->)
-    await fs.promises.writeFile 'lib/coffeescript/parser.js', parserText, encoding: 'utf8'
+    await fs.promises.writeFile PARSER_PATH, parserText, encoding: 'utf8'
 
     parserBuildComplete = performance.now()
     sendMsg {parserBuildComplete}
@@ -134,8 +160,11 @@ buildParser = ->
     process.exit 0
 
   scriptText = "(#{jisonScript.toString()}());"
-  await fs.promises.writeFile '.jison-script.js', scriptText, encoding: 'utf8'
-  child = spawn process.execPath, ['--experimental-default-type=commonjs', ".jison-script.js"]
+  await fs.promises.writeFile scriptPath, scriptText, encoding: 'utf8'
+  child = spawn process.execPath, ['--experimental-default-type=commonjs', scriptPath],
+    env:
+      GRAMMAR_PATH: grammarPath
+      PARSER_PATH: parserPath
 
   child.stderr.pipe process.stderr
 
@@ -165,18 +194,16 @@ buildParser = ->
   child.on 'error', (err) ->
     console.error "subprocess issue: #{err}"
     process.exit 1
-  code = await new Promise (res, rej) ->
-    child.on 'exit', (code) -> res(code)
+  code = await new Promise (res) -> child.on 'exit', res
   assert code is 0
   rl.close()
 
-  parserChecksum = await checksumFile 'lib/coffeescript/parser.js'
+  parserChecksum = await checksumFile parserPath
   console.debug "new parser checksum: #{parserChecksum}"
-  attestation = "#{grammarChecksum}:#{parserChecksum}"
-  assert attestation.length is 129
-  console.debug "writing new attestation '#{attestation}' now..."
-  await fs.promises.writeFile 'lib/coffeescript/.jison-attestation.txt', attestation, encoding: 'utf8'
-  attestation
+
+  assert grammarChecksum == await checksumFile grammarPath
+
+  await writeAttestation grammarChecksum, parserChecksum
 
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
