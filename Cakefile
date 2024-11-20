@@ -1,10 +1,30 @@
+assert                    = require 'assert'
+{ createHash }            = require 'crypto'
+oldConsole                = require 'console'
 fs                        = require 'fs'
 os                        = require 'os'
 path                      = require 'path'
+stream                    = require 'stream'
 _                         = require 'underscore'
 { spawn, exec, execSync } = require 'child_process'
 CoffeeScript              = require './lib/coffeescript'
 helpers                   = require './lib/coffeescript/helpers'
+util                      = require 'util'
+process                   = require 'process'
+readline                  = require 'readline'
+
+sha256 = -> createHash 'sha256'
+
+checksumFile = (inPath) ->
+  {dir, base} = path.parse inPath
+  outPath = path.join dir, ".#{base}.sha256"
+  console.debug "checksum: '#{inPath}' => '#{outPath}'"
+  outStream = fs.createReadStream inPath
+    .pipe sha256()
+    .setEncoding 'hex'
+    .pipe fs.createWriteStream outPath
+  await stream.promises.finished outStream
+  await fs.promises.readFile outPath, encoding: 'utf8'
 
 # ANSI Terminal Colors.
 bold = red = green = yellow = reset = ''
@@ -52,10 +72,111 @@ run = (args, callback) ->
 # Build the CoffeeScript language from source.
 buildParser = ->
   helpers.extend global, require 'util'
-  require 'jison'
-  # We don't need `moduleMain`, since the parser is unlikely to be run standalone.
-  parser = require('./lib/coffeescript/grammar').parser.generate(moduleMain: ->)
-  fs.writeFileSync 'lib/coffeescript/parser.js', parser
+
+  # (1) cache parser build
+  #   (1.1) cache on grammar.coffee [DONE]
+  #   (1.2) cache on jison dep
+  # (2) cache file compilation
+  # (3) make source maps work for errors in the coffeescript compiler!
+
+  grammarChecksum = await checksumFile 'lib/coffeescript/grammar.js'
+  console.debug "grammar checksum: #{grammarChecksum}"
+  parserChecksum = await checksumFile 'lib/coffeescript/parser.js'
+  console.debug "parser checksum: #{parserChecksum}"
+  try
+    console.debug 'reading attestation file for parser compile caching...'
+    attestation = await fs.promises.readFile 'lib/coffeescript/.jison-attestation.txt', encoding: 'utf8'
+    console.debug "attestation: #{attestation}"
+    assert attestation.length is 129
+    [grammar, sep, parser] = [attestation[...64], attestation[64], attestation[65..]]
+    assert sep is ':' and grammar.length is 64 and parser.length is 64
+    if grammar == grammarChecksum and parser == parserChecksum
+      console.debug 'success! using cached parser...'
+      return attestation
+    else
+      console.warn 'attestation was out of date, compiling jison grammar...'
+  catch e
+    assert e.code is 'ENOENT'
+    console.debug 'attestation file not found, compiling jison grammar...'
+
+  jisonScript = ->
+    assert = require 'assert'
+    fs = require 'fs'
+    # Gather summary statistics about the grammar.
+    { performance } = require 'perf_hooks'
+    require 'jison'
+
+    sendMsg = (obj) ->
+      msg = JSON.stringify obj
+      process.stdout.write "#{msg}\n"
+
+    startParserBuild = performance.now()
+    sendMsg {startParserBuild}
+
+    parser = require('./lib/coffeescript/grammar').parser
+    {symbols_, terminals_, productions_} = parser
+    countKeys = (obj) -> (Object.keys obj).length
+    sendMsg
+      numSyms: countKeys symbols_
+      numTerms: countKeys terminals_
+      numProds: countKeys productions_
+
+    loadGrammar = performance.now()
+    sendMsg {loadGrammar}
+
+    # We don't need `moduleMain`, since the parser is unlikely to be run standalone.
+    parserText = parser.generate(moduleMain: ->)
+    await fs.promises.writeFile 'lib/coffeescript/parser.js', parserText, encoding: 'utf8'
+
+    parserBuildComplete = performance.now()
+    sendMsg {parserBuildComplete}
+
+    process.exit 0
+
+  scriptText = "(#{jisonScript.toString()}());"
+  await fs.promises.writeFile '.jison-script.js', scriptText, encoding: 'utf8'
+  child = spawn process.execPath, ['--experimental-default-type=commonjs', ".jison-script.js"]
+
+  child.stderr.pipe process.stderr
+
+  rl = readline.createInterface
+    input: child.stdout
+    terminal: no
+    crlfDelay: Infinity
+
+  msgEnv = {}
+  rl.on 'line', (line) ->
+    msg = JSON.parse line
+    Object.assign msgEnv, msg
+    if msg.startParserBuild?
+      {startParserBuild} = msgEnv
+      console.debug "parser compile began at timestamp #{startParserBuild}"
+    else if msg.numSyms?
+      {numSyms, numTerms, numProds} = msgEnv
+      console.debug "parser created (#{numSyms} symbols, #{numTerms} terminals, #{numProds} productions)"
+    else if msg.loadGrammar?
+      {loadGrammar, startParserBuild} = msgEnv
+      console.debug "loading grammar: #{loadGrammar - startParserBuild} ms"
+    else if msg.parserBuildComplete?
+      {parserBuildComplete, loadGrammar, startParserBuild} = msgEnv
+      console.debug "parser generation: #{parserBuildComplete - loadGrammar} ms"
+      console.debug "full parser build time: #{parserBuildComplete - startParserBuild} ms"
+    else throw new Error "unrecognized fork msg: #{JSON.stringify msg}"
+  child.on 'error', (err) ->
+    console.error "subprocess issue: #{err}"
+    process.exit 1
+  code = await new Promise (res, rej) ->
+    child.on 'exit', (code) -> res(code)
+  assert code is 0
+  rl.close()
+
+  parserChecksum = await checksumFile 'lib/coffeescript/parser.js'
+  console.debug "new parser checksum: #{parserChecksum}"
+  attestation = "#{grammarChecksum}:#{parserChecksum}"
+  assert attestation.length is 129
+  console.debug "writing new attestation '#{attestation}' now..."
+  await fs.promises.writeFile 'lib/coffeescript/.jison-attestation.txt', attestation, encoding: 'utf8'
+  attestation
 
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
@@ -63,8 +184,10 @@ buildExceptParser = (callback) ->
   run ['-c', '-o', 'lib/coffeescript'].concat(files), callback
 
 build = (callback) ->
-  buildParser()
-  buildExceptParser callback
+  util.callbackify(buildParser) (err, attestation) ->
+    throw err if err?
+    console.debug {attestation}
+    buildExceptParser callback
 
 transpile = (code, options = {}) ->
   options.minify =      process.env.MINIFY    isnt 'false'
@@ -123,7 +246,8 @@ watchAndBuildAndTest = (harmony = no) ->
 
 task 'build', 'build the CoffeeScript compiler from source', build
 
-task 'build:parser', 'build the Jison parser only', buildParser
+task 'build:parser', 'build the Jison parser only', ->
+  await buildParser()
 
 task 'build:except-parser', 'build the CoffeeScript compiler, except for the Jison parser', buildExceptParser
 
