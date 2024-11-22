@@ -53,7 +53,7 @@ log = (message, color, explanation) ->
   console.log color + message + reset + ' ' + (explanation or '')
 
 
-spawnNodeProcess = (args, output = 'stderr') ->
+spawnNodeProcess = (args, {output = 'stderr'} = {}) ->
   proc = spawn process.execPath, args
   switch output
     when 'stdout'
@@ -63,14 +63,23 @@ spawnNodeProcess = (args, output = 'stderr') ->
     when 'both'
       proc.stdout.pipe process.stdout
       proc.stderr.pipe process.stderr
+    else throw new TypeError "unrecognized output arg: #{output}"
   new Promise (resolve, reject) ->
     proc.on 'exit', (code, signal) -> resolve {code, signal}
     proc.on 'error', (err) -> reject err
 
+
 # Run a CoffeeScript through our node/coffee interpreter.
 run = (args) ->
-  {code, signal} = await spawnNodeProcess ['bin/coffee', ...args], 'stderr'
-  process.exit(1) if code isnt 0
+  {code, signal} = await spawnNodeProcess ['bin/coffee', ...args], {output: 'stderr'}
+  if code? and code is 0
+    return
+  explanation = if signal?
+    "with signal '#{signal}'."
+  else
+    "with code #{code}."
+  log "Process exited", red, explanation
+  process.exit(1)
 
 
 buildAttestation = (inputPaths, outputPath, attestationPath, execute) ->
@@ -244,11 +253,11 @@ buildAndTest = (includingParser = yes, harmony = no) ->
   buildArgs = ['bin/cake']
   buildArgs.push if includingParser then 'build' else 'build:except-parser'
   log "building#{if includingParser then ', including parser' else ''}...", green
-  await spawnNodeProcess buildArgs, 'both'
+  await spawnNodeProcess buildArgs, {output: 'both'}
   log 'testing...', green
   testArgs = if harmony then ['--harmony'] else []
   testArgs = testArgs.concat ['bin/cake', 'test']
-  await spawnNodeProcess testArgs, 'both'
+  await spawnNodeProcess testArgs, {output: 'both'}
 
 watchAndBuildAndTest = (harmony = no) ->
   buildAndTest yes, harmony
