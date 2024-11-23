@@ -84,6 +84,8 @@ exports.CakeConsole = class CakeConsole extends Console
 
 
 exports.setupConsole = ({level}) ->
-  return if global.cakeConsole?
-  global.console = global.cakeConsole = CakeConsole.stdio {level}
+  if global.cakeConsole?
+    return global.cakeConsole
+  global.console = global.cakeConsole = cakeConsole = CakeConsole.stdio {level}
   console.debug "log level = #{level}"
+  cakeConsole

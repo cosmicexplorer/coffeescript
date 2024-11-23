@@ -28,8 +28,13 @@ option null, '--no-color', 'disable colored output'
 task = (name, description, action) ->
   global.task name, description, ({level = 'log', ...opts} = {}) ->
     setupStyler {colors: not opts['no-color']}
-    setupConsole {level}
-    action {...opts}
+    console = setupConsole {level}
+    try
+      await Promise.resolve action {...opts}
+    catch e
+      if e instanceof TopLevelError
+        e.printAndExit console
+      throw e
 
 sha256 = -> createHash 'sha256'
 
@@ -91,6 +96,31 @@ buildParser = ->
   parserTask = new JisonParser
   await parserTask.cachedExecute console
 
+
+class TopLevelError extends AggregateError
+  printAndExit: (console) ->
+    aggregateQueue = [@]
+
+    while aggregateQueue.length > 0
+      e = aggregateQueue.shift()
+      console.error e.message if e.message
+      if e instanceof AggregateError
+        aggregateQueue.push ...e.errors
+
+    process.exit 1
+
+  @executeParallel: (tasks) -> Promise.allSettled(tasks).then (results) =>
+    failures = (reason for {status, value, reason} in results when status is 'rejected')
+    if failures.length > 0
+      Promise.reject new @ failures
+
+
+class CompileFailures extends TopLevelError
+  constructor: (errors) ->
+    message = "#{errors.length} compiles failed"
+    super errors, message
+
+
 buildExceptParser = ->
   compileRequests = for file in await fs.promises.readdir 'src'
     {name, ext} = path.parse file
@@ -98,9 +128,15 @@ buildExceptParser = ->
     coffeeSource = path.join 'src', file
     jsOut = path.join 'lib/coffeescript', "#{name}.js"
     new CompileSources {coffeeSource, jsOut}
-  Promise.all compileRequests.map (r) -> r.cachedExecute console
 
-build = -> Promise.all [buildParser(), buildExceptParser()]
+  CompileFailures.executeParallel compileRequests.map (r) -> r.cachedExecute console
+
+
+class FullBuildError extends TopLevelError
+
+
+build = -> FullBuildError.executeParallel [buildParser(), buildExceptParser()]
+
 
 transpile = (code, options = {}) ->
   options.minify =      process.env.MINIFY    isnt 'false'

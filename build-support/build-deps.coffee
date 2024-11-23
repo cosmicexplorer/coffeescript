@@ -1,5 +1,5 @@
-{ BuildTask, ChecksumFiles }                  = require './caching'
-{ collectProcess, getCapture, invokeProcess } = require './subprocess'
+{ BuildTask, ChecksumFiles }               = require './caching'
+{ collectNone, getCapture, invokeProcess } = require './subprocess'
 
 
 exports.BuildDeps = class BuildDeps extends BuildTask
@@ -16,7 +16,6 @@ exports.BuildDeps = class BuildDeps extends BuildTask
 
   execute: ->
     capture = getCapture 'stderr'
-    collect = collectProcess -> null
     proc = await invokeProcess 'npm', ['install', '.']
     capture proc
-    await collect proc
+    await collectNone proc

@@ -1,16 +1,15 @@
 { spawn }     = require 'child_process'
 process       = require 'process'
-{ TaskError } = require './caching'
 
 
-exports.SubprocessError = class SubprocessError extends TaskError
-  constructor: (@child, ...rest) -> super ...rest
+exports.SubprocessError = class SubprocessError extends Error
+  constructor: (child, message, ...rest) ->
+    message = "process [#{child.spawnargs.join ', '}] failed: #{message}"
+    super message, ...rest
+    @child = child
+
   exe: -> @child.spawnfile
   args: -> @child.spawnargs
-
-  printAndExit: (task, console) ->
-    console.error "process '#{@exe()}' [#{@args().join ', '}] failed: #{@message}"
-    super task, console
 
 exports.SpawnFailed = class SpawnFailed extends SubprocessError
   constructor: (child, cause) -> super child, 'process spawn failed: #{cause.message}', {cause}
@@ -27,13 +26,13 @@ exports.NonZeroExit = class NonZeroExit extends ProcessCompletedError
 exports.Aborted = class Aborted extends ProcessCompletedError
   constructor: (child, cause) -> super child, 'process aborted', {cause}
 
-exports.OutputCapturedError = class OutputCapturedError extends ProcessCompletedError
-  constructor: (@capturedOutput, cause) ->
-    super cause.child, cause.message, {cause}
-
-  printAndExit: (task, console) ->
-    process.stderr.write @capturedOutput
-    super task, console
+exports.OutputCapturedError = class OutputCapturedError extends Error
+  constructor: (capturedOutput, cause) ->
+    message = if capturedOutput
+      "#{cause.message}\n#{capturedOutput}"
+    else cause.message
+    super message, {cause}
+    @capturedOutput = capturedOutput
 
 
 # Async process spawning.

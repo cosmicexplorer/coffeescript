@@ -77,9 +77,10 @@ class Attestation
   make: ->
     [inputs, outputs] = await Promise.all [
       @inputSources.digestAll()
-      @outputSources.digestAll().catch (e) => Promise.reject if e instanceof Content.Unavailable
-        new @constructor.OutputUnavailable e
-      else e
+      @outputSources.digestAll().catch (e) => Promise.reject switch
+        when e instanceof Content.Unavailable
+          new @constructor.OutputUnavailable e
+        else e
     ]
     ret =
       inputs: {}
@@ -123,10 +124,15 @@ class Attestation
     @constructor.objectEquals cached, generated
 
 
-exports.TaskError = class TaskError extends Error
-  printAndExit: (task, console) ->
-    console.error "failed: #{task.print()}"
-    process.exit 1
+exports.TaskFailed = class TaskFailed extends Error
+  constructor: (task, cause) ->
+    message = "task failed: #{task.print()}\n#{cause.message}"
+    super message, {cause}
+    @task = task
+
+
+# exports.ManyFailures = class ManyFailures extends AggregateError
+#   constructor: (errors, message) ->
 
 
 exports.BuildTask = class BuildTask
@@ -164,10 +170,11 @@ exports.BuildTask = class BuildTask
     console.log @print()
     startTask = performance.now()
 
-    await @execute(console).catch (e) => switch
-      when e instanceof TaskError
-        e.printAndExit @, console
-      else Promise.reject e
+    # await @execute(console).catch (e) => switch
+    #   when e instanceof TaskError
+    #     e.printAndExit @, console
+    #   else Promise.reject e
+    await @execute(console).catch (e) => Promise.reject new TaskFailed @, e
 
     endTask = performance.now()
     console.info "task '#{@identifier()}' complete (#{endTask - startTask} ms)"
