@@ -14,7 +14,6 @@ process                   = require 'process'
 { TaskFailed  }           = require './build-support/caching'
 { CompileSources }        = require './build-support/compile-sources'
 { JisonParser }           = require './build-support/parser'
-{ setupStyler }           = require './build-support/colors'
 { setupConsole }          = require './build-support/console'
 {
   spawnNodeProcess,
@@ -27,7 +26,6 @@ option null, '--no-color', 'disable colored output'
 
 task = (name, description, action) ->
   global.task name, description, ({level = 'log', ...opts} = {}) ->
-    setupStyler {colors: not opts['no-color']}
     console = setupConsole {level}
     try
       await Promise.resolve action {...opts}
@@ -62,7 +60,7 @@ majorVersion = parseInt CoffeeScript.VERSION.split('.')[0], 10
 
 # Log a message with a color.
 log = (message, color, explanation) ->
-  console.log stylize(color)(message) + ' ' + (explanation or '')
+  console.log color + message + reset + ' ' + (explanation or '')
 
 
 # Run a CoffeeScript through our node/coffee interpreter.
