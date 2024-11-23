@@ -48,11 +48,39 @@ exports.Checksummed = class Checksummed
 
 exports.ChecksumFiles = class ChecksumFiles
   constructor: (paths) ->
-    @inputs = paths.map (p) -> path.resolve p
+    @sources = paths.map (p) -> path.resolve p
       .sort()
       .map (p) -> new FileContent p
 
-  digestAll: -> await Promise.all @inputs.map (f) -> await Checksummed.digestContent f
+  digestAll: -> await Promise.all @sources.map (f) -> await Checksummed.digestContent f
+
+
+exports.TaskFailed = class TaskFailed extends Error
+  constructor: (task, cause) ->
+    message = "task failed: #{task.print()}\n#{cause.message}"
+    super message, {cause}
+    @task = task
+
+  title: -> @task.print()
+  operation: -> @cause.operation?()
+  reason: -> @cause.reason?()
+  inner: -> @cause.inner?()
+
+  print: (console, {useColors}) ->
+    console.error "task failed: #{@title()}"
+
+    operation = "operation: #{@operation()}"
+    if useColors
+      operation = util.styleText 'yellow', operation
+    console.info operation
+
+    reason = "reason: #{@reason()}"
+    if useColors
+      reason = util.styleText 'cyan', reason
+    console.info reason
+
+    if (inner = @inner())?
+      console.error util.styleText 'reset', inner
 
 
 class Attestation
@@ -123,34 +151,6 @@ class Attestation
       return no if e instanceof @constructor.OutputUnavailable
       throw e
     @constructor.objectEquals cached, generated
-
-
-exports.TaskFailed = class TaskFailed extends Error
-  constructor: (task, cause) ->
-    message = "task failed: #{task.print()}\n#{cause.message}"
-    super message, {cause}
-    @task = task
-
-  title: -> @task.print()
-  operation: -> @cause.operation?()
-  reason: -> @cause.reason?()
-  inner: -> @cause.inner?()
-
-  print: (console, {useColors}) ->
-    console.error "task failed: #{@title()}"
-
-    operation = "operation: #{@operation()}"
-    if useColors
-      operation = util.styleText 'yellow', operation
-    console.info operation
-
-    reason = "reason: #{@reason()}"
-    if useColors
-      reason = util.styleText 'cyan', reason
-    console.info reason
-
-    if (inner = @inner())?
-      console.error util.styleText 'reset', inner
 
 
 exports.BuildTask = class BuildTask
