@@ -161,7 +161,7 @@ transpile = (code, options = {}) ->
     minified: options.minify
     comments: not options.minify
     sourceType: options.sourceType
-  { code } = babel.transformSync code, babelOptions unless presets.length is 0
+  { code } = await babel.transformAsync code, babelOptions unless presets.length is 0
   code
 
 testBuiltCode = (watch = no) ->
@@ -489,13 +489,13 @@ task 'bench', 'quick benchmark of compilation time', ->
 runTests = (CoffeeScript) ->
   CoffeeScript.register() unless global.testingBrowser
 
-  # These are attached to `global` so that they’re accessible from within
-  # `test/async.coffee`, which has an async-capable version of
-  # `global.test`.
   global.currentFile = null
   global.passedTests = 0
   global.failures    = []
 
+  # These are attached to `global` so that they’re accessible from within
+  # `test/async.coffee`, which has an async-capable version of
+  # `global.test`.
   global[name] = func for name, func of require 'assert'
 
   # Convenience aliases.
