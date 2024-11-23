@@ -45,7 +45,7 @@ exports.inspect = (obj) ->
   else
     require('util').inspect obj,
       depth: 10
-      colors: if process.env.NODE_DISABLE_COLORS then no else yes
+      colors: if process.env.NODE_DISABLE_COLORS then no else process.stdout.hasColors()
 
 # Helpers to get AST nodes for a string of code.
 exports.getAstRoot = getAstRoot = (code) ->

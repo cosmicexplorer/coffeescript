@@ -1,6 +1,5 @@
 assert                    = require 'assert'
 { createHash }            = require 'crypto'
-oldConsole                = require 'console'
 fs                        = require 'fs'
 os                        = require 'os'
 path                      = require 'path'
@@ -11,10 +10,23 @@ CoffeeScript              = require './lib/coffeescript'
 helpers                   = require './lib/coffeescript/helpers'
 util                      = require 'util'
 process                   = require 'process'
+
+{ setupStyler }           = require './build-support/colors'
+{ setupConsole }          = require './build-support/console'
 {
   spawnNodeProcess,
   NonZeroExit,
 }                         = require './build-support/subprocess'
+
+
+option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn < error]'
+option null, '--no-color', 'disable colored output'
+
+task = (name, description, action) ->
+  global.task name, description, ({level = 'log', ...opts} = {}) ->
+    setupStyler {colors: not opts['no-color']}
+    setupConsole {level}
+    action {...opts}
 
 sha256 = -> createHash 'sha256'
 
@@ -30,7 +42,7 @@ checksumFile = (inPath) ->
 
 # ANSI Terminal Colors.
 bold = red = green = yellow = reset = ''
-unless process.env.NODE_DISABLE_COLORS
+if process.stdout.hasColors() and not process.env.NODE_DISABLE_COLORS
   bold   = '\x1B[0;1m'
   red    = '\x1B[0;31m'
   green  = '\x1B[0;32m'
@@ -54,7 +66,7 @@ majorVersion = parseInt CoffeeScript.VERSION.split('.')[0], 10
 
 # Log a message with a color.
 log = (message, color, explanation) ->
-  console.log color + message + reset + ' ' + (explanation or '')
+  console.log stylize(color)(message) + ' ' + (explanation or '')
 
 
 # Run a CoffeeScript through our node/coffee interpreter.
@@ -74,13 +86,14 @@ buildAttestation = (inputPaths, outputPath, attestationPath, execute) ->
     [inputHashes..., outputHash] = attestation.split ':'
     if (outputHash == outputChecksum and
         [0...checksummedPaths.length].every (i) -> checksummedPaths[i] == inputHashes[i])
-       console.debug 'success! using cache...'
+       console.debug "#{stylize('yellow', 'italic')('success!')} using cache..."
        return yes
     console.warn 'attestation was out of date, ...'
     # TODO: ?????
   catch e
-    assert e.code is 'ENOENT'
-    console.debug 'attestation file not found, ...'
+    if e.code is 'ENOENT'
+      console.debug 'attestation file not found, ...'
+    else throw e
 
   await execute inputPaths, outputPath
   newChecksummedPaths = await Promise.all inputPaths.sort().map (p) -> await checksumFile p
@@ -246,11 +259,11 @@ watchAndBuildAndTest = (harmony = no) ->
   buildAndTest yes, harmony
   fs.watch 'src/', interval: 200, (eventType, filename) ->
     if eventType is 'change'
-      log "src/#{filename} changed, rebuilding..."
+      log "src/#{filename} changed, rebuilding...", green
       buildAndTest (filename is 'grammar.coffee'), harmony
   fs.watch 'test/', {interval: 200, recursive: yes}, (eventType, filename) ->
     if eventType is 'change'
-      log "test/#{filename} changed, rebuilding..."
+      log "test/#{filename} changed, rebuilding...", green
       buildAndTest no, harmony
 
 
