@@ -24,7 +24,7 @@ exports.Aborted = class Aborted extends ProcessCompletedError
 
 
 # Async process spawning.
-invokeProcess = (...spawnArgs) -> new Promise (resolve, reject) ->
+exports.invokeProcess = invokeProcess = (...spawnArgs) -> new Promise (resolve, reject) ->
   spawnFailed = (err) -> reject new SpawnFailed @, err
   spawn ...spawnArgs
     .on 'error', spawnFailed
@@ -34,7 +34,7 @@ invokeProcess = (...spawnArgs) -> new Promise (resolve, reject) ->
       @off 'error', spawnFailed
       resolve @
 
-collectProcess = (collect) -> (proc) -> new Promise (resolve, reject) -> (proc
+exports.collectProcess = collectProcess = (collect) -> (proc) -> new Promise (resolve, reject) -> (proc
   .on 'error', (err) -> reject new Aborted @, err
   .on 'exit', (code, signal) ->
     if signal?
@@ -44,7 +44,7 @@ collectProcess = (collect) -> (proc) -> new Promise (resolve, reject) -> (proc
       reject new NonZeroExit @, code
       return
     resolve collect @)
-collectNone = collectProcess -> null
+exports.collectNone = collectNone = collectProcess -> null
 
 captureOutputs =
   stdout: -> @stdout.pipe process.stdout
@@ -53,7 +53,7 @@ captureOutputs =
     @stdout.pipe process.stdout
     @stderr.pipe process.stderr
   none: ->
-getCapture = (arg) ->
+exports.getCapture = getCapture = (arg) ->
   method = captureOutputs[arg] ? throw new TypeError "unrecognized capture arg: #{arg}"
   (proc) -> method.bind(proc)()
 
