@@ -57,19 +57,30 @@ exports.ChecksumFiles = class ChecksumFiles
 class Attestation
   constructor: ({@inputSources, @outputSources, @path}) ->
 
-  class @Unavailable extends Error
+  class @NoCachedValue extends Error
     constructor: (source, why, cause = null) ->
       msg = "attestation could not be read: #{why}"
       super msg, {cause}
       @source = source
 
+  class @OutputUnavailable extends Content.Unavailable
+    constructor: (cause) -> super cause.source, 'output must be generated', cause
+
+  class @InputNotFound extends Content.Unavailable
+    constructor: (cause) -> super cause.source, 'internal task dependency error', cause
+
   read: -> try JSON.parse await fs.promises.readFile @path, encoding: 'utf8'
   catch e then throw switch e.code
-    when 'ENOENT' then new @constructor.Unavailable @, 'file does not exist', e
+    when 'ENOENT' then new @constructor.NoCachedValue @, 'file does not exist', e
     else e
 
   make: ->
-    [inputs, outputs] = await Promise.all [@inputSources.digestAll(), @outputSources.digestAll()]
+    [inputs, outputs] = await Promise.all [
+      @inputSources.digestAll()
+      @outputSources.digestAll().catch (e) => Promise.reject if e instanceof Content.Unavailable
+        new @constructor.OutputUnavailable e
+      else e
+    ]
     ret =
       inputs: {}
       outputs: {}
@@ -101,15 +112,13 @@ class Attestation
 
   # TODO: named returns and breaks for nested control flow!
   cacheIsValid: ->
-    try
-      cached = await @read()
+    try cached = await @read()
     catch e
-      return no if e instanceof @constructor.Unavailable
+      return no if e instanceof @constructor.NoCachedValue
       throw e
-    try
-      generated = await @make()
+    try generated = await @make()
     catch e
-      return no if e instanceof Content.Unavailable
+      return no if e instanceof @constructor.OutputUnavailable
       throw e
     @constructor.objectEquals cached, generated
 
