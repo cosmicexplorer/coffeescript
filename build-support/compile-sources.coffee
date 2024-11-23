@@ -1,7 +1,8 @@
-{ BuildTask, ChecksumFiles } = require './caching'
-{ spawnNodeProcess }         = require './subprocess'
-{ createHash }               = require 'crypto'
-path                         = require 'path'
+{ BuildTask, ChecksumFiles }  = require './caching'
+{ invokeProcess, captureErr } = require './subprocess'
+{ createHash }                = require 'crypto'
+path                          = require 'path'
+process                       = require 'process'
 
 
 exports.CompileSources = class CompileSources extends BuildTask
@@ -22,15 +23,17 @@ exports.CompileSources = class CompileSources extends BuildTask
     {srcName, outName, digest} = @extractNameKeys()
     "compile-sources-#{srcName}-#{outName}-#{digest}"
 
-  constructor: ({@coffeeSource, @jsOut}) ->
+  constructor: ({@coffeeSource, @jsOut, @coffeeBin = 'bin/coffee'}) ->
     super()
     unless @coffeeSource.match /\.(lit)?coffee$/
       throw new TypeError "coffee source file must end in .coffee or .litcoffee (was: '#{@coffeeSource}')"
     unless @jsOut.match /\.js$/
       throw new TypeError "js output file must end in .js (was: '#{@jsOut}')"
 
-  inputSources: -> new ChecksumFiles [@coffeeSource]
+  inputSources: -> new ChecksumFiles [@coffeeSource, @coffeeBin]
   outputSources: -> new ChecksumFiles [@jsOut]
   print: -> "coffee compile: #{@coffeeSource} -> #{@jsOut}"
 
-  execute: -> await spawnNodeProcess ['bin/coffee', '-c', '-o', @jsOut, @coffeeSource]
+  execute: (console) ->
+    proc = await invokeProcess process.execPath, [@coffeeBin, '-c', '-o', @jsOut, @coffeeSource]
+    await captureErr proc

@@ -1,14 +1,19 @@
-{ spawn } = require 'child_process'
-process   = require 'process'
+{ spawn }     = require 'child_process'
+process       = require 'process'
+{ TaskError } = require './caching'
 
 
-exports.SubprocessError = class SubprocessError extends Error
+exports.SubprocessError = class SubprocessError extends TaskError
   constructor: (@child, ...rest) -> super ...rest
   exe: -> @child.spawnfile
   args: -> @child.spawnargs
 
+  printAndExit: (task, console) ->
+    console.error "process '#{@exe()}' [#{@args().join ', '}] failed: #{@message}"
+    super task, console
+
 exports.SpawnFailed = class SpawnFailed extends SubprocessError
-  constructor: (child, cause) -> super child, 'process spawn failed', {cause}
+  constructor: (child, cause) -> super child, 'process spawn failed: #{cause.message}', {cause}
 
 exports.ProcessCompletedError = class ProcessCompletedError extends SubprocessError
 exports.SignalReceived = class SignalReceived extends ProcessCompletedError
@@ -21,6 +26,14 @@ exports.NonZeroExit = class NonZeroExit extends ProcessCompletedError
     @code = code
 exports.Aborted = class Aborted extends ProcessCompletedError
   constructor: (child, cause) -> super child, 'process aborted', {cause}
+
+exports.OutputCapturedError = class OutputCapturedError extends ProcessCompletedError
+  constructor: (@capturedOutput, cause) ->
+    super cause.child, cause.message, {cause}
+
+  printAndExit: (task, console) ->
+    process.stderr.write @capturedOutput
+    super task, console
 
 
 # Async process spawning.
@@ -66,3 +79,15 @@ exports.spawnNodeProcess = (args, {output = 'stderr'} = {}) ->
   capture proc
 
   await collectNone proc
+
+
+exports.captureErr = captureErr = (proc) ->
+  getErrChunks = do (proc) ->
+    out = ''
+    for await chunk from proc.stderr.setEncoding 'utf8'
+      out += chunk
+    out
+  collectNone(proc).catch (e) -> switch
+    when e instanceof SubprocessError
+      getErrChunks.then (errChunks) -> Promise.reject new OutputCapturedError errChunks, e
+    else Promise.reject e

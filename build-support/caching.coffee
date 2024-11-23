@@ -123,6 +123,12 @@ class Attestation
     @constructor.objectEquals cached, generated
 
 
+exports.TaskError = class TaskError extends Error
+  printAndExit: (task, console) ->
+    console.error "failed: #{task.print()}"
+    process.exit 1
+
+
 exports.BuildTask = class BuildTask
   identifier: -> throw new TypeError "unimplemented: #{@constructor.name}"
   inputSources: -> throw new TypeError "unimplemented: #{@constructor.name}"
@@ -157,7 +163,12 @@ exports.BuildTask = class BuildTask
     console.info "task '#{@identifier()}' was not cached; executing"
     console.log @print()
     startTask = performance.now()
-    await @execute()
+
+    await @execute(console).catch (e) => switch
+      when e instanceof TaskError
+        e.printAndExit @, console
+      else Promise.reject e
+
     endTask = performance.now()
     console.info "task '#{@identifier()}' complete (#{endTask - startTask} ms)"
     console.debug "caching task '#{@identifier()}' at '#{@attestationPath()}'"

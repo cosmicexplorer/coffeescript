@@ -11,6 +11,7 @@ helpers                   = require './lib/coffeescript/helpers'
 util                      = require 'util'
 process                   = require 'process'
 
+{ BuildDeps }             = require './build-support/build-deps'
 { CompileSources }        = require './build-support/compile-sources'
 { JisonParser }           = require './build-support/parser'
 { setupStyler }           = require './build-support/colors'
@@ -83,8 +84,10 @@ buildParser = ->
   # (1) cache parser build
   #   (1.1) cache on grammar.coffee [DONE]
   #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
-  # (2) cache file compilation
+  # (2) cache file compilation [DONE]
   # (3) make source maps work for errors in the coffeescript compiler!
+  buildDepsTask = new BuildDeps
+  await buildDepsTask.cachedExecute console
   parserTask = new JisonParser
   await parserTask.cachedExecute console
 
@@ -95,11 +98,9 @@ buildExceptParser = ->
     coffeeSource = path.join 'src', file
     jsOut = path.join 'lib/coffeescript', "#{name}.js"
     new CompileSources {coffeeSource, jsOut}
-  await Promise.all compileRequests.map (r) -> await r.cachedExecute console
+  Promise.all compileRequests.map (r) -> r.cachedExecute console
 
-build = ->
-  await buildParser()
-  await buildExceptParser()
+build = -> Promise.all [buildParser(), buildExceptParser()]
 
 transpile = (code, options = {}) ->
   options.minify =      process.env.MINIFY    isnt 'false'

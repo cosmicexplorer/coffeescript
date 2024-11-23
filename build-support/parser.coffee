@@ -8,10 +8,12 @@ exports.JisonParser = class JisonParser extends BuildTask
     @grammarPath = 'lib/coffeescript/grammar.js',
     @parserPath = 'lib/coffeescript/parser.js',
     @jisonScript = 'build-support/jison-script.coffee',
+    @pkgLock = 'node_modules/.package-lock.json',
+    @coffeeBin = 'bin/coffee',
   } = {}) -> super()
 
-  inputSources: -> new ChecksumFiles [@grammarPath, @jisonScript]
+  inputSources: -> new ChecksumFiles [@grammarPath, @jisonScript, @pkgLock, @coffeeBin]
   outputSources: -> new ChecksumFiles [@parserPath]
   print: -> "jison generate: #{@grammarPath} -> #{@parserPath}"
 
-  execute: -> await spawnNodeProcess ['bin/coffee', @jisonScript, @grammarPath, @parserPath]
+  execute: -> await spawnNodeProcess [@coffeeBin, @jisonScript, @grammarPath, @parserPath]
