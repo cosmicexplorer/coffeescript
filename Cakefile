@@ -81,6 +81,7 @@ class TopLevelError extends AggregateError
         aggregateStack.push ...e.errors.reverse()
       else if e instanceof TaskFailed
         e.print console, {useColors: USE_COLORS}
+      else throw new TypeError "unrecognized exception: #{e}", {cause: e}
 
       if (heading = e.heading?())?
         if USE_COLORS
@@ -96,7 +97,7 @@ class TopLevelError extends AggregateError
 
 
 
-class SingleErrorWrapper extends TopLevelError
+class SingleErrorWrapper extends AggregateError
   constructor: (cause) ->
     super [cause], null, {cause}
 
