@@ -21,7 +21,6 @@ process                   = require 'process'
 
 
 option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn < error]'
-option null, '--no-color', 'disable colored output'
 
 task = (name, description, action) ->
   global.task name, description, ({level = 'log', ...opts} = {}) ->
@@ -115,6 +114,8 @@ buildParser = ->
   #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
   # (2) cache file compilation [DONE]
   # (3) make source maps work for errors in the coffeescript compiler!
+  #     FIXME: see register.coffee: --enable-source-maps works for this???
+  #            using 'node --enable-source-maps bin/cake test' appears to make #4418 pass????
   buildDepsTask = new BuildDeps
   await buildDepsTask.cachedExecute(console).catch (e) -> Promise.reject new BootstrapFailure e
   parserTask = new JisonParser
