@@ -1,23 +1,22 @@
-assert                    = require 'assert'
-fs                        = require 'fs'
-os                        = require 'os'
-path                      = require 'path'
-stream                    = require 'stream'
-{ spawn, exec, execSync } = require 'child_process'
-CoffeeScript              = require './lib/coffeescript'
-helpers                   = require './lib/coffeescript/helpers'
-util                      = require 'util'
-process                   = require 'process'
-
-{ BuildDeps }             = require './build-support/build-deps'
-{ TaskFailed  }           = require './build-support/caching'
-{ CompileSources }        = require './build-support/compile-sources'
-{ JisonParser }           = require './build-support/parser'
-{ setupConsole }          = require './build-support/console'
+assert                      = require 'assert'
+fs                          = require 'fs'
+os                          = require 'os'
+path                        = require 'path'
+stream                      = require 'stream'
+{ spawn, exec, execSync }   = require 'child_process'
+CoffeeScript                = require './lib/coffeescript'
+helpers                     = require './lib/coffeescript/helpers'
+util                        = require 'util'
+process                     = require 'process'
+{ BuildDeps }               = require './build-support/build-deps'
+{ TaskFailed  }             = require './build-support/caching'
+{ CompileBootstrapSources } = require './build-support/compile-sources'
+{ JisonParser }             = require './build-support/parser'
+{ setupConsole }            = require './build-support/console'
 {
   spawnNodeProcess,
   NonZeroExit,
-}                         = require './build-support/subprocess'
+}                           = require './build-support/subprocess'
 
 
 option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn < error]'
@@ -89,10 +88,11 @@ class TopLevelError extends AggregateError
 
     process.exit 1
 
-  @executeParallel: (tasks) -> Promise.allSettled(tasks).then (results) =>
+  @executeParallel: (tasks) ->
+    results = await Promise.allSettled tasks
     failures = (reason for {status, value, reason} in results when status is 'rejected')
     if failures.length > 0
-      Promise.reject new @ failures
+      throw new @ failures
 
 
 
@@ -117,9 +117,9 @@ buildParser = ->
   #     FIXME: see register.coffee: --enable-source-maps works for this???
   #            using 'node --enable-source-maps bin/cake test' appears to make #4418 pass????
   buildDepsTask = new BuildDeps
-  await buildDepsTask.cachedExecute(console).catch (e) -> Promise.reject new BootstrapFailure e
+  await buildDepsTask.cachedExecute(console, {useColors: USE_COLORS}).catch (e) -> Promise.reject new BootstrapFailure e
   parserTask = new JisonParser
-  await parserTask.cachedExecute(console).catch (e) -> Promise.reject new ParserFailure e
+  await parserTask.cachedExecute(console, {useColors: USE_COLORS}).catch (e) -> Promise.reject new ParserFailure e
 
 
 class CompileFailures extends TopLevelError
@@ -135,9 +135,9 @@ buildExceptParser = ->
     continue unless ext in ['.coffee', '.litcoffee']
     coffeeSource = path.join 'src', file
     jsOut = path.join 'lib/coffeescript', "#{name}.js"
-    new CompileSources {coffeeSource, jsOut}
+    new CompileBootstrapSources {coffeeSource, jsOut}
 
-  CompileFailures.executeParallel compileRequests.map (r) -> r.cachedExecute console
+  CompileFailures.executeParallel compileRequests.map (r) -> r.cachedExecute console, {useColors: USE_COLORS}
 
 
 class FullBuildError extends TopLevelError

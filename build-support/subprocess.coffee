@@ -96,7 +96,8 @@ exports.captureOutput = captureOutput = (proc) ->
     for await chunk from proc.stderr.setEncoding 'utf8'
       out += chunk
     out
-  collectNone(proc).catch (e) -> switch
+  collect = collectProcess -> getOutChunks
+  collect(proc).catch (e) -> switch
     when e instanceof SubprocessError
       getOutChunks.then (outChunks) -> Promise.reject new OutputCapturedError outChunks, e
     else Promise.reject e

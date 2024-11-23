@@ -179,7 +179,7 @@ exports.BuildTask = class BuildTask
 
   execute: -> throw new TypeError "unimplemented: #{@constructor.name}"
 
-  cachedExecute: (console) ->
+  cachedExecute: (console, {useColors}) ->
     if await @cacheIsValid()
       console.debug "task '#{@identifier()}' was fully cached!"
       console.debug "task '#{@identifier()}' is cached at '#{@attestationPath()}'"
@@ -188,7 +188,7 @@ exports.BuildTask = class BuildTask
     console.log @print()
     startTask = performance.now()
 
-    await @execute(console).catch (e) => Promise.reject new TaskFailed @, e
+    await @execute(console, {useColors}).catch (e) => Promise.reject new TaskFailed @, e
 
     endTask = performance.now()
     console.info "task '#{@identifier()}' complete (#{endTask - startTask} ms)"
