@@ -1,10 +1,11 @@
-assert         = require 'assert'
-{ createHash } = require 'crypto'
-fs             = require 'fs'
-path           = require 'path'
-{ performance }  = require 'perf_hooks'
-stream         = require 'stream'
-helpers        = require '../lib/coffeescript/helpers'
+assert          = require 'assert'
+fs              = require 'fs'
+helpers         = require '../lib/coffeescript/helpers'
+path            = require 'path'
+stream          = require 'stream'
+util            = require 'util'
+{ createHash }  = require 'crypto'
+{ performance } = require 'perf_hooks'
 
 
 exports.Content = class Content
@@ -134,6 +135,22 @@ exports.TaskFailed = class TaskFailed extends Error
   operation: -> @cause.operation?()
   reason: -> @cause.reason?()
   inner: -> @cause.inner?()
+
+  print: (console, {useColors}) ->
+    console.error "task failed: #{@title()}"
+
+    operation = "operation: #{@operation()}"
+    if useColors
+      operation = util.styleText 'yellow', operation
+    console.info operation
+
+    reason = "reason: #{@reason()}"
+    if useColors
+      reason = util.styleText 'cyan', reason
+    console.info reason
+
+    if (inner = @inner())?
+      console.error util.styleText 'reset', inner
 
 
 exports.BuildTask = class BuildTask

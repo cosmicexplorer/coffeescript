@@ -3,7 +3,6 @@ fs                        = require 'fs'
 os                        = require 'os'
 path                      = require 'path'
 stream                    = require 'stream'
-_                         = require 'underscore'
 { spawn, exec, execSync } = require 'child_process'
 CoffeeScript              = require './lib/coffeescript'
 helpers                   = require './lib/coffeescript/helpers'
@@ -36,7 +35,8 @@ task = (name, description, action) ->
 
 # ANSI Terminal Colors.
 bold = red = green = yellow = reset = ''
-if process.stdout.hasColors() and not process.env.NODE_DISABLE_COLORS
+USE_COLORS = process.stdout.hasColors?() and not process.env.NODE_DISABLE_COLORS
+if USE_COLORS
   bold   = '\x1B[0;1m'
   red    = '\x1B[0;31m'
   green  = '\x1B[0;32m'
@@ -80,18 +80,12 @@ class TopLevelError extends AggregateError
       if e instanceof AggregateError
         aggregateStack.push ...e.errors.reverse()
       else if e instanceof TaskFailed
-        title = e.title()
-        console.error "task failed: #{title}"
-        operation = e.operation()
-        console.info util.styleText ['yellow'], "operation: #{operation}"
-        reason = e.reason()
-        console.info util.styleText ['cyan'], "reason: #{reason}"
-        inner = e.inner()
-        if inner?
-          console.error util.styleText 'reset', inner
+        e.print console, {useColors: USE_COLORS}
 
       if (heading = e.heading?())?
-        console.error util.styleText ['underline', 'magenta', 'italic'], heading
+        if USE_COLORS
+          heading = util.styleText ['underline', 'magenta', 'italic'], heading
+        console.error heading
 
     process.exit 1
 
@@ -286,6 +280,8 @@ task 'build:watch:harmony', 'watch and continually rebuild the CoffeeScript comp
 
 
 buildDocs = (watch = no) ->
+  _ = require 'underscore'
+
   # Constants
   indexFile             = 'documentation/site/index.html'
   siteSourceFolder      = "documentation/site"
