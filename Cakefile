@@ -11,6 +11,10 @@ CoffeeScript              = require './lib/coffeescript'
 helpers                   = require './lib/coffeescript/helpers'
 util                      = require 'util'
 process                   = require 'process'
+{
+  spawnNodeProcess,
+  NonZeroExit,
+}                         = require './build-support/subprocess'
 
 sha256 = -> createHash 'sha256'
 
@@ -53,33 +57,12 @@ log = (message, color, explanation) ->
   console.log color + message + reset + ' ' + (explanation or '')
 
 
-spawnNodeProcess = (args, {output = 'stderr'} = {}) ->
-  proc = spawn process.execPath, args
-  switch output
-    when 'stdout'
-      proc.stdout.pipe process.stdout
-    when 'stderr'
-      proc.stderr.pipe process.stderr
-    when 'both'
-      proc.stdout.pipe process.stdout
-      proc.stderr.pipe process.stderr
-    else throw new TypeError "unrecognized output arg: #{output}"
-  new Promise (resolve, reject) ->
-    proc.on 'exit', (code, signal) -> resolve {code, signal}
-    proc.on 'error', (err) -> reject err
-
-
 # Run a CoffeeScript through our node/coffee interpreter.
-run = (args) ->
-  {code, signal} = await spawnNodeProcess ['bin/coffee', ...args], {output: 'stderr'}
-  if code? and code is 0
-    return
-  explanation = if signal?
-    "with signal '#{signal}'."
-  else
-    "with code #{code}."
-  log "Process exited", red, explanation
-  process.exit(1)
+run = (args) -> try await spawnNodeProcess ['bin/coffee', ...args]
+catch e
+  if e instanceof NonZeroExit
+    process.exit 1
+  else throw e
 
 
 buildAttestation = (inputPaths, outputPath, attestationPath, execute) ->
