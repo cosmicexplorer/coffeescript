@@ -12,6 +12,7 @@ exports.BuildDeps = class BuildDeps extends BuildTask
 
   inputSources: -> new ChecksumFiles [@trackedLockfile]
   outputSources: -> new ChecksumFiles [@installLockFile]
+  print: -> "npm install: #{@trackedLockfile} -> #{@installLockFile}"
 
   execute: ->
     capture = getCapture 'stderr'

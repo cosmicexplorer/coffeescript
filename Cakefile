@@ -11,6 +11,7 @@ helpers                   = require './lib/coffeescript/helpers'
 util                      = require 'util'
 process                   = require 'process'
 
+{ CompileSources }        = require './build-support/compile-sources'
 { JisonParser }           = require './build-support/parser'
 { setupStyler }           = require './build-support/colors'
 { setupConsole }          = require './build-support/console'
@@ -88,9 +89,13 @@ buildParser = ->
   await parserTask.cachedExecute console
 
 buildExceptParser = ->
-  files = for file in await fs.promises.readdir('src') when file.match(/\.(lit)?coffee$/)
-    path.join 'src', file
-  await run ['-c', '-o', 'lib/coffeescript', ...files]
+  compileRequests = for file in await fs.promises.readdir 'src'
+    {name, ext} = path.parse file
+    continue unless ext in ['.coffee', '.litcoffee']
+    coffeeSource = path.join 'src', file
+    jsOut = path.join 'lib/coffeescript', "#{name}.js"
+    new CompileSources {coffeeSource, jsOut}
+  await Promise.all compileRequests.map (r) -> await r.cachedExecute console
 
 build = ->
   await buildParser()

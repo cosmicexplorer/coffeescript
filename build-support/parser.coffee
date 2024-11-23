@@ -12,5 +12,6 @@ exports.JisonParser = class JisonParser extends BuildTask
 
   inputSources: -> new ChecksumFiles [@grammarPath, @jisonScript]
   outputSources: -> new ChecksumFiles [@parserPath]
+  print: -> "jison generate: #{@grammarPath} -> #{@parserPath}"
 
   execute: -> await spawnNodeProcess ['bin/coffee', @jisonScript, @grammarPath, @parserPath]

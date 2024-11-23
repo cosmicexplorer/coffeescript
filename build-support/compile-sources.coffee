@@ -31,5 +31,6 @@ exports.CompileSources = class CompileSources extends BuildTask
 
   inputSources: -> new ChecksumFiles [@coffeeSource]
   outputSources: -> new ChecksumFiles [@jsOut]
+  print: -> "coffee compile: #{@coffeeSource} -> #{@jsOut}"
 
   execute: -> await spawnNodeProcess ['bin/coffee', '-c', '-o', @jsOut, @coffeeSource]

@@ -127,6 +127,7 @@ exports.BuildTask = class BuildTask
   identifier: -> throw new TypeError "unimplemented: #{@constructor.name}"
   inputSources: -> throw new TypeError "unimplemented: #{@constructor.name}"
   outputSources: -> throw new TypeError "unimplemented: #{@constructor.name}"
+  print: -> throw new TypeError "unimplemented: #{@constructor.name}"
 
   @attestationDir: '.attestations'
   @makeAttestationFilename: (id) => "#{id}.attestation.json"
@@ -154,6 +155,7 @@ exports.BuildTask = class BuildTask
       console.debug "task '#{@identifier()}' is cached at '#{@attestationPath()}'"
       return
     console.info "task '#{@identifier()}' was not cached; executing"
+    console.log @print()
     startTask = performance.now()
     await @execute()
     endTask = performance.now()
