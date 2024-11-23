@@ -1,26 +1,30 @@
+assert         = require 'assert'
 { createHash } = require 'crypto'
 fs             = require 'fs'
+path           = require 'path'
+{ performance }  = require 'perf_hooks'
 stream         = require 'stream'
+helpers        = require '../lib/coffeescript/helpers'
 
 
 exports.Content = class Content
-  describe: -> throw new TypeError "unimplemented: #{@constructor.name}"
+  identifier: -> throw new TypeError "unimplemented: #{@constructor.name}"
   stream: -> throw new TypeError "unimplemented: #{@constructor.name}"
 
   class @Unavailable extends Error
     constructor: (source, why, cause = null) ->
-      msg = "#{source.describe()} could not be read: #{why}"
+      msg = "#{source.identifier()} could not be read: #{why}"
       super msg, {cause}
       @source = source
 
 exports.StringContent = class StringContent extends Content
   constructor: (@s) -> super()
-  describe: -> "string(#{JSON.stringify @s})"
+  identifier: -> "string(#{JSON.stringify @s})"
   stream: -> Promise.resolve stream.Readable.from @s
 
 exports.FileContent = class FileContent extends Content
   constructor: (@p) -> super()
-  describe: -> "path(#{@p})"
+  identifier: -> "path(#{@p})"
   stream: -> new Promise (resolve, reject) =>
     fs.createReadStream @p
       .on 'error', (e) => reject switch e.code
@@ -41,58 +45,109 @@ exports.Checksummed = class Checksummed
     new @ source, digest
 
 
-# p = new FileContent 'Cakefile'
-# c = await Checksummed.digestContent p
-# console.dir {p, c}
+exports.ChecksumFiles = class ChecksumFiles
+  constructor: (paths) ->
+    @inputs = paths.map (p) -> path.resolve p
+      .sort()
+      .map (p) -> new FileContent p
 
-# p2 = new FileContent 'aaaaa'
-# e = try
-#   await Checksummed.digestContent p2
-# catch e then e
-# console.dir {p2, e}
-# console.log e.stack
-
+  digestAll: -> await Promise.all @inputs.map (f) -> await Checksummed.digestContent f
 
 
 class Attestation
-  @inputSeparator: ':'
-  @outputSeparator: '|'
+  constructor: ({@inputSources, @outputSources, @path}) ->
 
-  @sanitizeHash: (hashValue, separator, descriptor) =>
-    if hashValue.includes separator
-      throw new TypeError "#{descriptor} hash value '#{hashValue}' cannot contain separator '#{separator}'"
+  class @Unavailable extends Error
+    constructor: (source, why, cause = null) ->
+      msg = "attestation could not be read: #{why}"
+      super msg, {cause}
+      @source = source
 
-  constructor: (@inputHashes, @outputHash) ->
-    @inputHashes.forEach (i) => @constructor.sanitizeHash i, @constructor.inputSeparator, 'input'
-    @constructor.sanitizeHash @outputHash, @constructor.outputSeparator, 'output'
+  read: -> try JSON.parse await fs.promises.readFile @path, encoding: 'utf8'
+  catch e then throw switch e.code
+    when 'ENOENT' then new @constructor.Unavailable @, 'file does not exist', e
+    else e
 
-  serialize: ->
-    "#{@inputHashes.join @constructor.inputSeparator}#{@constructor.outputSeparator}#{@outputHash}"
+  make: ->
+    [inputs, outputs] = await Promise.all [@inputSources.digestAll(), @outputSources.digestAll()]
+    ret =
+      inputs: {}
+      outputs: {}
+    for {source, checksum} in inputs
+      ret.inputs[source.identifier()] = checksum
+    for {source, checksum} in outputs
+      ret.outputs[source.identifier()] = checksum
+    ret
 
-  @deserialize: (value) ->
-    [inputs, outputHash] = value.split @outputSeparator
-    inputHashes = inputs.split @inputSeparator
-    new @ inputHashes, outputHash
+  write: ->
+    generated = await @make()
+    encoded = JSON.stringify generated, null, 2
+    await fs.promises.writeFile @path, encoded, encoding: 'utf8'
+
+  @objectEquals: (a, b) =>
+    if helpers.isString a
+      assert helpers.isString b
+      return a.toString() == b.toString()
+    assert helpers.isPlainObject a
+    assert helpers.isPlainObject b
+    keysA = new Set Object.keys a
+    keysB = new Set Object.keys b
+    if keysA.symmetricDifference(keysB).size > 0
+      return no
+    for key from keysA
+      unless @objectEquals a[key], b[key]
+        return no
+    yes
+
+  # TODO: named returns and breaks for nested control flow!
+  cacheIsValid: ->
+    try
+      cached = await @read()
+    catch e
+      return no if e instanceof @constructor.Unavailable
+      throw e
+    try
+      generated = await @make()
+    catch e
+      return no if e instanceof Content.Unavailable
+      throw e
+    @constructor.objectEquals cached, generated
 
 
-class CachedExecute
-  constructor: (@inputPaths, @outputPath, @attestationPath) ->
-    @inputPaths.sort()
+exports.BuildTask = class BuildTask
+  identifier: -> throw new TypeError "unimplemented: #{@constructor.name}"
+  inputSources: -> throw new TypeError "unimplemented: #{@constructor.name}"
+  outputSources: -> throw new TypeError "unimplemented: #{@constructor.name}"
 
-  # checksumPaths: ->
-  #   inputs: await Promise.all @inputPaths.map (p) ->
-  #     path: p
-  #     checksum: await checksumFile p
-  #   output:
-  #     path: @outputPath
-  #     checksum:
+  @attestationDir: '.attestations'
+  @makeAttestationFilename: (id) => "#{id}.attestation.json"
+  @makeAttestationPath: (id) =>
+    filename = @makeAttestationFilename id
+    path.join @attestationDir, filename
+  attestationPath: -> @constructor.makeAttestationPath @identifier()
+  asAttestation: -> new Attestation
+      inputSources: @inputSources()
+      outputSources: @outputSources()
+      path: @attestationPath()
 
-  readAttestation: -> try
-    await fs.promises.readFile @attestationPath, encoding: 'utf8'
+  cacheIsValid: -> await @asAttestation().cacheIsValid()
+  writeCache: -> await @asAttestation().write()
+  deleteCache: -> try await fs.promises.unlink @attestationPath()
   catch e then switch e.code
     when 'ENOENT'
-      console.debug 'attestation file not found'
-      null
     else throw e
 
-  validateAttestation: ->
+  execute: -> throw new TypeError "unimplemented: #{@constructor.name}"
+
+  cachedExecute: (console) ->
+    if await @cacheIsValid()
+      console.info "task '#{@identifier()}' was fully cached!"
+      console.debug "task '#{@identifier()}' is cached at '#{@attestationPath()}'"
+      return
+    console.info "task '#{@identifier()}' was not cached; executing"
+    startTask = performance.now()
+    await @execute()
+    endTask = performance.now()
+    console.info "task '#{@identifier()}' complete (#{endTask - startTask} ms)"
+    console.debug "caching task '#{@identifier()}' at '#{@attestationPath()}'"
+    await @writeCache()

@@ -11,6 +11,7 @@ helpers                   = require './lib/coffeescript/helpers'
 util                      = require 'util'
 process                   = require 'process'
 
+{ JisonParser }           = require './build-support/parser'
 { setupStyler }           = require './build-support/colors'
 { setupConsole }          = require './build-support/console'
 {
@@ -77,131 +78,14 @@ catch e
   else throw e
 
 
-buildAttestation = (inputPaths, outputPath, attestationPath, execute) ->
-  checksummedPaths = await Promise.all inputPaths.sort().map (p) -> await checksumFile p
-  outputChecksum = await checksumFile outputPath
-
-  try
-    attestation = await fs.promises.readFile attestationPath, encoding: 'utf8'
-    [inputHashes..., outputHash] = attestation.split ':'
-    if (outputHash == outputChecksum and
-        [0...checksummedPaths.length].every (i) -> checksummedPaths[i] == inputHashes[i])
-       console.debug "#{stylize('yellow', 'italic')('success!')} using cache..."
-       return yes
-    console.warn 'attestation was out of date, ...'
-    # TODO: ?????
-  catch e
-    if e.code is 'ENOENT'
-      console.debug 'attestation file not found, ...'
-    else throw e
-
-  await execute inputPaths, outputPath
-  newChecksummedPaths = await Promise.all inputPaths.sort().map (p) -> await checksumFile p
-  assert ([0...newChecksummedPaths.length].every (i) -> newChecksummedPaths[i] == checksummedPaths[i]), 11111
-
-  newOutputChecksum = await checksumFile outputPath
-  # assert newOutputChecksum isnt outputChecksum, 22222
-  attestation = [checksummedPaths..., newOutputChecksum].join ':'
-  await fs.promises.writeFile attestationPath, attestation, encoding: 'utf8'
-
-
-generateParser = (scriptPath) -> ([grammarPath, pkgPath], parserPath) ->
-  # This function's contents are going to be written into a script to execute.
-  jisonScript = ->
-    assert = require 'assert'
-    fs = require 'fs'
-    # Gather summary statistics about the grammar.
-    {performance} = require 'perf_hooks'
-
-    {GRAMMAR_PATH, PARSER_PATH} = process.env
-
-    # Send messages over lines of JSON.
-    sendMsg = (obj) ->
-      msg = JSON.stringify obj
-      process.stdout.write "#{msg}\n"
-
-    startParserBuild = performance.now()
-    sendMsg {startParserBuild}
-
-    # This will pull in Jison and other dependencies, although that's nowhere near as bad as
-    # executing Jison itself.
-    {parser} = require GRAMMAR_PATH
-    {symbols_, terminals_, productions_} = parser
-    countKeys = (obj) -> (Object.keys obj).length
-    sendMsg
-      numSyms: countKeys symbols_
-      numTerms: countKeys terminals_
-      numProds: countKeys productions_
-
-    loadGrammar = performance.now()
-    sendMsg {loadGrammar}
-
-    # We don't need `moduleMain`, since the parser is unlikely to be run standalone.
-    parserText = parser.generate(moduleMain: ->)
-    await fs.promises.writeFile PARSER_PATH, parserText, encoding: 'utf8'
-
-    parserBuildComplete = performance.now()
-    sendMsg {parserBuildComplete}
-
-    process.exit 0
-
-  scriptText = "(#{jisonScript.toString()}());"
-  await fs.promises.writeFile scriptPath, scriptText, encoding: 'utf8'
-  child = spawn process.execPath, [scriptPath],
-    env:
-      GRAMMAR_PATH: grammarPath
-      PARSER_PATH: parserPath
-
-  child.stderr.pipe process.stderr
-
-  # Read lines of JSON one by one from subprocess stdout.
-  rl = require('readline').createInterface
-    input: child.stdout
-    terminal: no
-    crlfDelay: Infinity
-
-  msgEnv = {}
-  rl.on 'line', (line) ->
-    msg = JSON.parse line
-    Object.assign msgEnv, msg
-    if msg.startParserBuild?
-      {startParserBuild} = msgEnv
-      console.debug "parser compile began at timestamp #{startParserBuild}"
-    else if msg.numSyms?
-      {numSyms, numTerms, numProds} = msgEnv
-      console.debug "parser created (#{numSyms} symbols, #{numTerms} terminals, #{numProds} productions)"
-    else if msg.loadGrammar?
-      {loadGrammar, startParserBuild} = msgEnv
-      console.debug "loading grammar: #{loadGrammar - startParserBuild} ms"
-    else if msg.parserBuildComplete?
-      {parserBuildComplete, loadGrammar, startParserBuild} = msgEnv
-      console.debug "parser generation: #{parserBuildComplete - loadGrammar} ms"
-      console.debug "full parser build time: #{parserBuildComplete - startParserBuild} ms"
-    else throw new Error "unrecognized fork msg: #{JSON.stringify msg}"
-  code = await new Promise (res, rej) ->
-    child.on 'exit', res
-    child.on 'error', rej
-  assert code is 0
-  rl.close()
-
-
-# Build the CoffeeScript language from source.
-buildParser = ({
-  grammarPath = './lib/coffeescript/grammar.js',
-  parserPath = './lib/coffeescript/parser.js',
-  pkgPath = './package-lock.json',
-  attestationPath = './lib/coffeescript/.jison-attestation.txt',
-  scriptPath = './.jison-script.js',
-} = {}) ->
-  helpers.extend global, require 'util'
-
+buildParser = ->
   # (1) cache parser build
   #   (1.1) cache on grammar.coffee [DONE]
   #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
   # (2) cache file compilation
   # (3) make source maps work for errors in the coffeescript compiler!
-
-  await buildAttestation [grammarPath, pkgPath], parserPath, attestationPath, generateParser(scriptPath)
+  parserTask = new JisonParser
+  await parserTask.cachedExecute console
 
 buildExceptParser = ->
   files = for file in await fs.promises.readdir('src') when file.match(/\.(lit)?coffee$/)
