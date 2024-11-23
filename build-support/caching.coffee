@@ -130,9 +130,10 @@ exports.TaskFailed = class TaskFailed extends Error
     super message, {cause}
     @task = task
 
-
-# exports.ManyFailures = class ManyFailures extends AggregateError
-#   constructor: (errors, message) ->
+  title: -> @task.print()
+  operation: -> @cause.operation?()
+  reason: -> @cause.reason?()
+  inner: -> @cause.inner?()
 
 
 exports.BuildTask = class BuildTask
@@ -163,17 +164,13 @@ exports.BuildTask = class BuildTask
 
   cachedExecute: (console) ->
     if await @cacheIsValid()
-      console.info "task '#{@identifier()}' was fully cached!"
+      console.debug "task '#{@identifier()}' was fully cached!"
       console.debug "task '#{@identifier()}' is cached at '#{@attestationPath()}'"
       return
     console.info "task '#{@identifier()}' was not cached; executing"
     console.log @print()
     startTask = performance.now()
 
-    # await @execute(console).catch (e) => switch
-    #   when e instanceof TaskError
-    #     e.printAndExit @, console
-    #   else Promise.reject e
     await @execute(console).catch (e) => Promise.reject new TaskFailed @, e
 
     endTask = performance.now()

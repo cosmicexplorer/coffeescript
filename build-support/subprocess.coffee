@@ -3,16 +3,19 @@ process       = require 'process'
 
 
 exports.SubprocessError = class SubprocessError extends Error
-  constructor: (child, message, ...rest) ->
-    message = "process [#{child.spawnargs.join ', '}] failed: #{message}"
-    super message, ...rest
-    @child = child
+  constructor: (@child, ...rest) -> super ...rest
 
   exe: -> @child.spawnfile
   args: -> @child.spawnargs
 
+  # FIXME: why is shell quoting not provided in the stdlib? This is technically wrong!
+  quoteArgs: -> @args().map((arg) -> "'#{arg}'").join ', '
+  operation: -> "process [#{@quoteArgs()}]"
+
+  reason: -> @message
+
 exports.SpawnFailed = class SpawnFailed extends SubprocessError
-  constructor: (child, cause) -> super child, 'process spawn failed: #{cause.message}', {cause}
+  constructor: (child, cause) -> super child, "process spawn failed: #{cause.message}", {cause}
 
 exports.ProcessCompletedError = class ProcessCompletedError extends SubprocessError
 exports.SignalReceived = class SignalReceived extends ProcessCompletedError
@@ -24,7 +27,7 @@ exports.NonZeroExit = class NonZeroExit extends ProcessCompletedError
     super child, "non-zero exit code: #{code}"
     @code = code
 exports.Aborted = class Aborted extends ProcessCompletedError
-  constructor: (child, cause) -> super child, 'process aborted', {cause}
+  constructor: (child, cause) -> super child, "process aborted: #{cause.message}", {cause}
 
 exports.OutputCapturedError = class OutputCapturedError extends Error
   constructor: (capturedOutput, cause) ->
@@ -32,7 +35,12 @@ exports.OutputCapturedError = class OutputCapturedError extends Error
       "#{cause.message}\n#{capturedOutput}"
     else cause.message
     super message, {cause}
+
     @capturedOutput = capturedOutput
+
+  operation: -> @cause.operation?()
+  reason: -> @cause.reason?()
+  inner: -> @capturedOutput or null
 
 
 # Async process spawning.
@@ -80,13 +88,15 @@ exports.spawnNodeProcess = (args, {output = 'stderr'} = {}) ->
   await collectNone proc
 
 
-exports.captureErr = captureErr = (proc) ->
-  getErrChunks = do (proc) ->
+exports.captureOutput = captureOutput = (proc) ->
+  getOutChunks = do (proc) ->
     out = ''
+    for await chunk from proc.stdout.setEncoding 'utf8'
+      out += chunk
     for await chunk from proc.stderr.setEncoding 'utf8'
       out += chunk
     out
   collectNone(proc).catch (e) -> switch
     when e instanceof SubprocessError
-      getErrChunks.then (errChunks) -> Promise.reject new OutputCapturedError errChunks, e
+      getOutChunks.then (outChunks) -> Promise.reject new OutputCapturedError outChunks, e
     else Promise.reject e

@@ -1,5 +1,4 @@
 assert                    = require 'assert'
-{ createHash }            = require 'crypto'
 fs                        = require 'fs'
 os                        = require 'os'
 path                      = require 'path'
@@ -12,6 +11,7 @@ util                      = require 'util'
 process                   = require 'process'
 
 { BuildDeps }             = require './build-support/build-deps'
+{ TaskFailed  }           = require './build-support/caching'
 { CompileSources }        = require './build-support/compile-sources'
 { JisonParser }           = require './build-support/parser'
 { setupStyler }           = require './build-support/colors'
@@ -35,18 +35,6 @@ task = (name, description, action) ->
       if e instanceof TopLevelError
         e.printAndExit console
       throw e
-
-sha256 = -> createHash 'sha256'
-
-checksumFile = (inPath) ->
-  {dir, base} = path.parse inPath
-  outPath = path.join dir, ".#{base}.sha256"
-  outStream = fs.createReadStream inPath
-    .pipe sha256()
-    .setEncoding 'hex'
-    .pipe fs.createWriteStream outPath
-  await stream.promises.finished outStream
-  await fs.promises.readFile outPath, encoding: 'utf8'
 
 # ANSI Terminal Colors.
 bold = red = green = yellow = reset = ''
@@ -84,28 +72,28 @@ catch e
     process.exit 1
   else throw e
 
-
-buildParser = ->
-  # (1) cache parser build
-  #   (1.1) cache on grammar.coffee [DONE]
-  #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
-  # (2) cache file compilation [DONE]
-  # (3) make source maps work for errors in the coffeescript compiler!
-  buildDepsTask = new BuildDeps
-  await buildDepsTask.cachedExecute console
-  parserTask = new JisonParser
-  await parserTask.cachedExecute console
-
-
 class TopLevelError extends AggregateError
   printAndExit: (console) ->
-    aggregateQueue = [@]
+    aggregateStack = [@]
 
-    while aggregateQueue.length > 0
-      e = aggregateQueue.shift()
-      console.error e.message if e.message
+    while aggregateStack.length > 0
+      e = aggregateStack.pop()
+
       if e instanceof AggregateError
-        aggregateQueue.push ...e.errors
+        aggregateStack.push ...e.errors.reverse()
+      else if e instanceof TaskFailed
+        title = e.title()
+        console.error "task failed: #{title}"
+        operation = e.operation()
+        console.info util.styleText ['yellow'], "operation: #{operation}"
+        reason = e.reason()
+        console.info util.styleText ['cyan'], "reason: #{reason}"
+        inner = e.inner()
+        if inner?
+          console.error util.styleText 'reset', inner
+
+      if (heading = e.heading?())?
+        console.error util.styleText ['underline', 'magenta', 'italic'], heading
 
     process.exit 1
 
@@ -115,11 +103,37 @@ class TopLevelError extends AggregateError
       Promise.reject new @ failures
 
 
+
+class SingleErrorWrapper extends TopLevelError
+  constructor: (cause) ->
+    super [cause], null, {cause}
+
+
+class BootstrapFailure extends SingleErrorWrapper
+  heading: -> 'bootstrapping build deps failed'
+
+class ParserFailure extends SingleErrorWrapper
+  heading: -> 'building parser failed'
+
+
+buildParser = ->
+  # (1) cache parser build
+  #   (1.1) cache on grammar.coffee [DONE]
+  #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
+  # (2) cache file compilation [DONE]
+  # (3) make source maps work for errors in the coffeescript compiler!
+  buildDepsTask = new BuildDeps
+  await buildDepsTask.cachedExecute(console).catch (e) -> Promise.reject new BootstrapFailure e
+  parserTask = new JisonParser
+  await parserTask.cachedExecute(console).catch (e) -> Promise.reject new ParserFailure e
+
+
 class CompileFailures extends TopLevelError
   constructor: (errors) ->
-    message = "#{errors.length} compiles failed"
+    message = "#{errors.length} compile(s) failed"
     super errors, message
 
+  heading: -> @message
 
 buildExceptParser = ->
   compileRequests = for file in await fs.promises.readdir 'src'

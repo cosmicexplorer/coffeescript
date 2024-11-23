@@ -1,5 +1,5 @@
 { BuildTask, ChecksumFiles }  = require './caching'
-{ invokeProcess, captureErr } = require './subprocess'
+{ invokeProcess, captureOutput } = require './subprocess'
 { createHash }                = require 'crypto'
 path                          = require 'path'
 process                       = require 'process'
@@ -36,4 +36,4 @@ exports.CompileSources = class CompileSources extends BuildTask
 
   execute: (console) ->
     proc = await invokeProcess process.execPath, [@coffeeBin, '-c', '-o', @jsOut, @coffeeSource]
-    await captureErr proc
+    await captureOutput proc

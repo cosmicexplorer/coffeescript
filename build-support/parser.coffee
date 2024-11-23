@@ -1,5 +1,5 @@
 { BuildTask, ChecksumFiles }  = require './caching'
-{ invokeProcess, captureErr } = require './subprocess'
+{ invokeProcess, captureOutput } = require './subprocess'
 
 exports.JisonParser = class JisonParser extends BuildTask
   identifier: -> 'jison-parser'
@@ -18,4 +18,4 @@ exports.JisonParser = class JisonParser extends BuildTask
 
   execute: ->
     proc = await invokeProcess process.execPath, [@coffeeBin, @jisonScript, @grammarPath, @parserPath]
-    await captureErr proc
+    await captureOutput proc
