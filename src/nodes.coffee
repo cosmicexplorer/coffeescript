@@ -6022,6 +6022,37 @@ exports.Sequence = class Sequence extends Base
       expressions:
         expression.ast(o) for expression in @expressions
 
+# A declaration of an identifier which is checked to be unique in a given scope, along with other
+# differences from typical assignment such as the ability to attach a comment.
+exports.Declaration = class Declaration extends Base
+  constructor: (@name, @value) ->
+    super()
+
+    unless @name instanceof IdentifierLiteral
+      @name.error "only identifiers may be used as the target of a declaration (got #{@name})"
+
+  children: ['name', 'value']
+
+  isStatement: YES
+
+  # includeCommentFragments: YES
+
+  jumps: THIS
+
+  shouldCache: YES
+
+  assigns: (name) -> @name.assigns name
+  eachName: (iterator) -> @name.eachName iterator
+
+  astProperties: (o) ->
+    return
+      name: @name.ast o, LEVEL_TOP
+
+  compileNode: (o) ->
+    val = @value.compileToFragments o, LEVEL_LIST
+    compiledName = @name.compileToFragments o, LEVEL_TOP
+    [@makeCode("#{@tab}var "), compiledName..., @makeCode(' = '), val..., @makeCode(';')]
+
 # Constants
 # ---------
 

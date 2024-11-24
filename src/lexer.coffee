@@ -756,6 +756,8 @@ exports.Lexer = class Lexer
     if match = OPERATOR.exec @chunk
       [value] = match
       @tagParameters() if CODE.test value
+    else if match = DISTINCT_DECL.exec @chunk
+      [value] = match
     else
       value = @chunk.charAt 0
     tag  = value
@@ -780,6 +782,9 @@ exports.Lexer = class Lexer
         message = isUnassignable prev[1], origin[1]
         @error message, origin[2] if message
       return value.length if skipToken
+
+    if value is '@='
+      tag = 'DECLARATION'
 
     if value is '(' and prev?[0] is 'IMPORT'
       prev[0] = 'DYNAMIC_IMPORT'
@@ -1479,3 +1484,9 @@ LINE_BREAK = ['INDENT', 'OUTDENT', 'TERMINATOR']
 
 # Additional indent in front of these is ignored.
 INDENTABLE_CLOSERS = [')', '}', ']']
+
+# Proposed syntax for "declarations", which are checked to be unique in a scope and can therefore
+# have additional semantic information attached which would otherwise be erased.
+DISTINCT_DECL = /// ^ (
+  ?: @=                # distinct var decl which can have a specific comment attached.
+) ///
