@@ -4,6 +4,45 @@
 # languages who would compile to js and generate jsdoc. Anyway, I hope we can convince them to add
 # support for it, but it seems appropriate to focus on coffeescript itself first.
 
+'''
+# e.g. run these shell commands from the repo root:
+; cat > test-map.coffee <<EOF
+y = 3
+
+###* @type {string} ###
+x @= 3
+EOF
+; coffee build-support/typescript-compile.coffee test-map.coffee
+test-map.coffee:4:1 - error TS2322: Type 'number' is not assignable to type 'string'.
+
+4 x @= 3
+  ~
+# it also generates adjacent .js and .js.map files:
+; cat test-map.js
+var y;
+
+y = 3;
+
+/** @type {string} */
+var x = 3;
+
+//# sourceMappingURL=test-map.js.map
+; cat test-map.js.map
+{
+  "version": 3,
+  "file": "test-map.js",
+  "sourceRoot": "/home/cosmicexplorer/tools/coffeescript",
+  "sources": [
+    "test-map.coffee"
+  ],
+  "names": [],
+  "mappings": "AAAA,IAAA;;AAAA,CAAA,GAAI,EAAJ;;;AAGA,IAAA,CAAA,GAAK",
+  "sourcesContent": [
+    "y = 3\n\n###* @type {string} ###\nx @= 3\n"
+  ]
+}
+'''
+
 assert       = require 'assert'
 fs           = require 'fs'
 path         = require 'path'
