@@ -5,7 +5,7 @@
 # support for it, but it seems appropriate to focus on coffeescript itself first.
 
 '''
-# e.g. run these shell commands from the repo root:
+# e.g. run these shell commands from the repo root (you'll need to have npm installed typescript):
 ; cat > test-map.coffee <<EOF
 y = 3
 
