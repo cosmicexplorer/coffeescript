@@ -8,7 +8,7 @@ exports.JisonParser = class JisonParser extends BuildTask
   constructor: ({
     @grammarPath = 'lib/coffeescript/grammar.js',
     @parserPath = 'lib/coffeescript/parser.js',
-    @jisonScript = 'build-support/jison-script.coffee',
+    @jisonScript = 'build-support/isolated-scripts/jison-script.coffee',
     @pkgLock = 'node_modules/.package-lock.json',
     @coffeeBin = 'bin/coffee',
   } = {}) -> super()

@@ -84,7 +84,11 @@ exports.TaskFailed = class TaskFailed extends Error
 
 
 class Attestation
-  constructor: ({@inputSources, @outputSources, @path}) ->
+  constructor: ({
+    @inputSources,
+    @outputSources,
+    @path,
+  }) ->
 
   class @NoCachedValue extends Error
     constructor: (source, why, cause = null) ->
