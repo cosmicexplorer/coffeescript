@@ -6035,8 +6035,6 @@ exports.Declaration = class Declaration extends Base
 
   isStatement: YES
 
-  # includeCommentFragments: YES
-
   jumps: THIS
 
   shouldCache: YES
@@ -6044,11 +6042,21 @@ exports.Declaration = class Declaration extends Base
   assigns: (name) -> @name.assigns name
   eachName: (iterator) -> @name.eachName iterator
 
+  checkUniqueTopLevel: (o) ->
+    if o.scope not instanceof VarScope
+      @error 'declaration statements must be at the top level of a module or function scope'
+    if o.scope.hasName @name.value
+      @error 'declaration statements must be the first assignment within the scope, and cannot clash with function parameters'
+    o.scope.internNew @name.value, {type: 'declaration'}
+    @name.isDeclaration = yes
+
   astProperties: (o) ->
+    @checkUniqueTopLevel o
     return
       name: @name.ast o, LEVEL_TOP
 
   compileNode: (o) ->
+    @checkUniqueTopLevel o
     val = @value.compileToFragments o, LEVEL_LIST
     compiledName = @name.compileToFragments o, LEVEL_TOP
     [@makeCode("#{@tab}var "), compiledName..., @makeCode(' = '), val..., @makeCode(';')]
