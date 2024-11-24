@@ -7,10 +7,13 @@ _                         = require 'underscore'
 { spawn, exec, execSync } = require 'child_process'
 CoffeeScript              = require './lib/coffeescript'
 helpers                   = require './lib/coffeescript/helpers'
+{ setupConsole }          = require './build-support/console'
+{ PatternSet }            = require './build-support/patterns'
 
 # ANSI Terminal Colors.
 bold = red = green = yellow = reset = ''
-unless process.env.NODE_DISABLE_COLORS
+USE_COLORS = process.stdout.hasColors?() and not process.env.NODE_DISABLE_COLORS
+if USE_COLORS
   bold   = '\x1B[0;1m'
   red    = '\x1B[0;31m'
   green  = '\x1B[0;32m'
@@ -31,59 +34,11 @@ header = """
 # Used in folder names like `docs/v1`.
 majorVersion = parseInt CoffeeScript.VERSION.split('.')[0], 10
 
-
-class CakeConsole extends oldConsole.Console
-  @LEVELS: ['debug', 'info', 'log', 'warn', 'error', 'trace']
-  @levelNumsMap: do =>
-    ret = {}
-    ret[k] = i for k, i in @LEVELS
-    ret
-  @validLevels: => "[#{(@LEVELS.map (l) -> "'#{l}'").join ', '}]"
-
-  constructor: ({@level = 'log', ...opts} = {}) ->
-    super opts
-    unless @level in @constructor.LEVELS
-      throw new TypeError "argument '#{@level}' was not a valid log level
-      (should be: #{@constructor.validLevels()})"
-
-  @getLevelNum: (l) => @levelNumsMap[l] ? throw new TypeError "invalid level #{l}"
-  curLevelNum: -> @constructor.getLevelNum @level
-  doesThisLevelApply: (l) -> @curLevelNum() <= @constructor.getLevelNum l
-
-  # TODO: for some reason this is done lazily in buildParser, so let's do the same here.
-  helpers.extend global, require 'util'
-  for l in @LEVELS
-    do (l) => @::[l] = (...args) ->
-      if @doesThisLevelApply l
-        # NB: it's literally impossible to extend Console and propagate to the parent class because
-        #     of some horrific unexplained initialization code used for the singleton console
-        #     object, which employs a very complex prototype chain that makes it impossible to do
-        #     the simple thing: https://github.com/nodejs/node/blob/17fae65c72321659390c4cbcd9ddaf248accb953/lib/internal/console/global.js#L29-L33.
-        #     Undo the prototype chain nonsense and bind the method back to our subclass.
-        (oldConsole[l].bind @) ...args
-      else global.format ...args
-
-  @stdio: ({
-    stdout = process.stdout,
-    stderr = process.stderr,
-    ...opts,
-  } = {}) => new @ {
-    stdout,
-    stderr,
-    ...opts
-  }
-
-
 option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn < error]'
 
-setupConsole = ({level} = {}) ->
-  global.cakeConsole = CakeConsole.stdio {level}
-  global.console = global.cakeConsole
-  console.info "log level = #{level}"
-
-consoleTask = (name, description, action) ->
+task = (name, description, action) ->
   global.task name, description, ({level = 'log', ...opts} = {}) ->
-    setupConsole {level}
+    setupConsole {level, useColors: USE_COLORS}
     action {...opts}
 
 # Log a message with a color.
@@ -134,7 +89,7 @@ buildParser = ->
 buildExceptParser = (callback) ->
   files = fs.readdirSync 'src'
   files = ('src/' + file for file in files when file.match(/\.(lit)?coffee$/))
-  console.info {files}
+  console.dir.debug {files}
   run ['-c', '-o', 'lib/coffeescript'].concat(files), callback
 
 build = (callback) ->
@@ -196,7 +151,7 @@ watchAndBuildAndTest = (harmony = no) ->
       buildAndTest no, harmony
 
 
-consoleTask 'build', 'build the CoffeeScript compiler from source', build
+task 'build', 'build the CoffeeScript compiler from source', build
 
 task 'build:parser', 'build the Jison parser only', buildParser
 
@@ -265,7 +220,7 @@ task 'build:browser:full', 'merge the built scripts into a single file for use i
   console.log "built ... running browser tests:"
   invoke 'test:browser'
 
-consoleTask 'build:watch', 'watch and continually rebuild the CoffeeScript compiler, running tests on each build', ->
+task 'build:watch', 'watch and continually rebuild the CoffeeScript compiler, running tests on each build', ->
   watchAndBuildAndTest()
 
 task 'build:watch:harmony', 'watch and continually rebuild the CoffeeScript compiler, running harmony tests on each build', ->
@@ -504,7 +459,7 @@ runTests = (CoffeeScript, {filePatterns, negFilePatterns, descPatterns, negDescP
   negFilePatterns ?= PatternSet.empty {negated: yes}
   descPatterns ?= PatternSet.empty()
   negDescPatterns ?= PatternSet.empty {negated: yes}
-  console.dir {filePatterns, negFilePatterns, descPatterns, negDescPatterns}
+  console.dir.debug {filePatterns, negFilePatterns, descPatterns, negDescPatterns}
 
   # These are attached to `global` so that they’re accessible from within
   # `test/async.coffee`, which has an async-capable version of
@@ -535,13 +490,13 @@ runTests = (CoffeeScript, {filePatterns, negFilePatterns, descPatterns, negDescP
       description: description
       source: fn.toString() if fn.toString?
   onFilteredOut = (description, fn) ->
-    console.info "test '#{description}' was filtered out by patterns"
+    console.warn "test '#{description}' was filtered out by patterns"
     filteredOut.tests.push
       filename: global.currentFile
       description: description
       fn: fn
   onFilteredFile = (file) ->
-    console.info "file '#{file}' was filtered out by patterns"
+    console.warn "file '#{file}' was filtered out by patterns"
     filteredOut.files.push
       filename: file
 
@@ -617,12 +572,12 @@ runTests = (CoffeeScript, {filePatterns, negFilePatterns, descPatterns, negDescP
     Promise.reject() if failures.length isnt 0
 
 
-option '-f', '--file [REGEXP*]', 'test file patterns to positively match'
-option null, '--negFile [REGEXP*]', 'test file patterns to negatively match'
-option '-d', '--desc [REGEXP*]', 'test description patterns to positively match'
-option null, '--negDesc [REGEXP*]', 'test description patterns to negatively match'
+option '-f', '--file [REGEXP*]', 'regexp patterns to positively match against test file paths'
+option null, '--negFile [REGEXP*]', 'regexp patterns to negatively match against test file paths'
+option '-d', '--desc [REGEXP*]', 'regexp patterns to positively match against test descriptions'
+option null, '--negDesc [REGEXP*]', 'regexp patterns to negatively match against test descriptions'
 
-consoleTask 'test', 'run the CoffeeScript language test suite', ({
+task 'test', 'run the CoffeeScript language test suite', ({
   file = [],
   negFile = ['sourcemap'],
   desc = [],
