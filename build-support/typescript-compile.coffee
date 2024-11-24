@@ -41,6 +41,11 @@ var x = 3;
     "y = 3\n\n###* @type {string} ###\nx @= 3\n"
   ]
 }
+# finally, it also generates a .d.ts type definition file:
+; cat test-map.d.ts
+declare var y: any;
+/** @type {string} */
+declare var x: string;
 '''
 
 assert       = require 'assert'
@@ -149,7 +154,9 @@ checkMappedJsDoc = (mappedCompiled, options) ->
   exitCode = if emitResult.emitSkipped then 1 else 0
   process.exit exitCode
 
+
 checkMappedJsDoc byJsPath,
   allowJs: yes
   checkJs: yes
-  noEmit: yes
+  declaration: yes
+  emitDeclarationOnly: yes
