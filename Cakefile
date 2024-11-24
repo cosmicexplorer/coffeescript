@@ -20,6 +20,7 @@ process                     = require 'process'
 
 
 option '-l', '--level [LEVEL]', 'log level [debug < info < log(default) < warn < error]'
+option '-c', '--commit', 'whether to write compilation output back into tracked source files'
 
 task = (name, description, action) ->
   global.task name, description, ({level = 'log', ...opts} = {}) ->
@@ -108,7 +109,7 @@ class ParserFailure extends SingleErrorWrapper
   heading: -> 'building parser failed'
 
 
-buildParser = ->
+buildParser = ({commit}) ->
   # (1) cache parser build
   #   (1.1) cache on grammar.coffee [DONE]
   #   (1.2) cache on jison dep [DONE (kinda--uses package-lock.json)]
@@ -117,9 +118,9 @@ buildParser = ->
   #     FIXME: see register.coffee: --enable-source-maps works for this???
   #            using 'node --enable-source-maps bin/cake test' appears to make #4418 pass????
   buildDepsTask = new BuildDeps
-  await buildDepsTask.cachedExecute(console, {useColors: USE_COLORS}).catch (e) -> Promise.reject new BootstrapFailure e
+  await buildDepsTask.cachedExecute(console, {commit, useColors: USE_COLORS}).catch (e) -> Promise.reject new BootstrapFailure e
   parserTask = new JisonParser
-  await parserTask.cachedExecute(console, {useColors: USE_COLORS}).catch (e) -> Promise.reject new ParserFailure e
+  await parserTask.cachedExecute(console, {commit, useColors: USE_COLORS}).catch (e) -> Promise.reject new ParserFailure e
 
 
 class CompileFailures extends TopLevelError
@@ -129,7 +130,7 @@ class CompileFailures extends TopLevelError
 
   heading: -> @message
 
-buildExceptParser = ->
+bootstrapCompile = ({commit}) ->
   compileRequests = for file in await fs.promises.readdir 'src'
     {name, ext} = path.parse file
     continue unless ext in ['.coffee', '.litcoffee']
@@ -137,13 +138,16 @@ buildExceptParser = ->
     jsOut = path.join 'lib/coffeescript', "#{name}.js"
     new CompileBootstrapSources {coffeeSource, jsOut}
 
-  CompileFailures.executeParallel compileRequests.map (r) -> r.cachedExecute console, {useColors: USE_COLORS}
+  CompileFailures.executeParallel compileRequests.map (r) -> r.cachedExecute console, {commit, useColors: USE_COLORS}
 
 
 class FullBuildError extends TopLevelError
 
 
-build = -> FullBuildError.executeParallel [buildParser(), buildExceptParser()]
+build = ({commit}) -> FullBuildError.executeParallel [
+  buildParser {commit}
+  bootstrapCompile {commit}
+]
 
 
 transpile = (code, options = {}) ->
@@ -201,14 +205,14 @@ watchAndBuildAndTest = (harmony = no) ->
       buildAndTest no, harmony
 
 
-task 'build', 'build the CoffeeScript compiler from source', ->
-  await build()
+task 'build', 'build the CoffeeScript compiler from source', ({commit}) ->
+  await build {commit}
 
 task 'build:parser', 'build the Jison parser only', ->
   await buildParser()
 
 task 'build:except-parser', 'build the CoffeeScript compiler, except for the Jison parser', ->
-  await buildExceptParser()
+  await bootstrapCompile()
 
 task 'build:full', 'build the CoffeeScript compiler from source twice, and run the tests', ->
   await build()

@@ -46,13 +46,48 @@ exports.Checksummed = class Checksummed
     new @ source, digest
 
 
-exports.ChecksumFiles = class ChecksumFiles
+class OutputFiles
+  sourcePaths: -> throw new TypeError "unimplemented: #{@constructor.name}"
+  commitPaths: -> throw new TypeError "unimplemented: #{@constructor.name}"
+  commit: (console) -> throw new TypeError "unimplemented: #{@constructor.name}"
+
+
+exports.ChecksumFiles = class ChecksumFiles extends OutputFiles
   constructor: (paths) ->
+    super()
     @sources = paths.map (p) -> path.resolve p
       .sort()
       .map (p) -> new FileContent p
 
+  sourcePaths: -> @sources.map ({p}) -> p
+  commitPaths: -> @sourcePaths()
+  commit: (console) ->
+    paths = @commitPaths()
+    msg = paths.map((p) -> "'#{p}'").join ', '
+    console.debug "commit no-op: [#{msg}]"
+    Promise.resolve paths
+
   digestAll: -> await Promise.all @sources.map (f) -> await Checksummed.digestContent f
+
+
+exports.BuildOutputMirroredFiles = class BuildOutputMirroredFiles extends ChecksumFiles
+  constructor: (cacheDir, commitPaths) ->
+    buildPaths = new Map ([p, path.join(cacheDir, p)] for p in commitPaths)
+    super Array.from buildPaths.values()
+    @buildPaths = buildPaths
+
+  commitPaths: -> Array.from @buildPaths.keys()
+  commit: (console) ->
+    console.info "commit files: #{util.inspect @buildPaths}"
+    Promise.all (for [target, source] from @buildPaths
+      console.debug "commit copy #{source} -> #{target}"
+      fs.promises.copyFile source, target
+        .then -> target)
+
+  digestAll: ->
+    await Promise.all (for p in @sourcePaths()
+      fs.promises.mkdir path.dirname(p), recursive: yes)
+    await super()
 
 
 exports.TaskFailed = class TaskFailed extends Error
@@ -163,6 +198,9 @@ exports.BuildTask = class BuildTask
   outputSources: -> throw new TypeError "unimplemented: #{@constructor.name}"
   print: -> throw new TypeError "unimplemented: #{@constructor.name}"
 
+  @buildOutputBaseDir: '.build-output'
+  buildOutputDir: -> path.join @constructor.buildOutputBaseDir, @identifier()
+
   @attestationDir: '.attestations'
   @makeAttestationFilename: (id) => "#{id}.attestation.json"
   @makeAttestationPath: (id) =>
@@ -183,10 +221,14 @@ exports.BuildTask = class BuildTask
 
   execute: -> throw new TypeError "unimplemented: #{@constructor.name}"
 
-  cachedExecute: (console, {useColors}) ->
+  doCommit: (console) -> await @outputSources().commit console
+
+  cachedExecute: (console, {commit, useColors}) ->
     if await @cacheIsValid()
       console.debug "task '#{@identifier()}' was fully cached!"
       console.debug "task '#{@identifier()}' is cached at '#{@attestationPath()}'"
+      if commit
+        await @doCommit console
       return
     console.info "task '#{@identifier()}' was not cached; executing"
     console.log @print()
@@ -198,3 +240,5 @@ exports.BuildTask = class BuildTask
     console.info "task '#{@identifier()}' complete (#{endTask - startTask} ms)"
     console.debug "caching task '#{@identifier()}' at '#{@attestationPath()}'"
     await @writeCache()
+    if commit
+      await @doCommit console

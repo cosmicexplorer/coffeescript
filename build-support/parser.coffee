@@ -1,6 +1,6 @@
-{ BuildTask, ChecksumFiles }     = require './caching'
-{ invokeProcess, captureOutput } = require './subprocess'
-util                             = require 'util'
+{ BuildTask, ChecksumFiles, BuildOutputMirroredFiles } = require './caching'
+{ invokeProcess, captureOutput }                       = require './subprocess'
+util                                                   = require 'util'
 
 exports.JisonParser = class JisonParser extends BuildTask
   identifier: -> 'jison-parser'
@@ -14,11 +14,15 @@ exports.JisonParser = class JisonParser extends BuildTask
   } = {}) -> super()
 
   inputSources: -> new ChecksumFiles [@grammarPath, @jisonScript, @pkgLock, @coffeeBin]
-  outputSources: -> new ChecksumFiles [@parserPath]
-  print: -> "jison generate: #{@grammarPath} -> #{@parserPath}"
+  outputSources: -> new BuildOutputMirroredFiles @buildOutputDir(), [@parserPath]
+  print: -> "jison generate: #{@grammarPath} -> [#{@parserPath}]"
+
+  parserOutputPath: ->
+    [parserPath] = @outputSources().sourcePaths()
+    parserPath
 
   execute: (console, {useColors}) ->
-    proc = await invokeProcess process.execPath, [@coffeeBin, @jisonScript, @grammarPath, @parserPath, @pkgLock]
+    proc = await invokeProcess process.execPath, [@coffeeBin, @jisonScript, @grammarPath, @parserOutputPath(), @pkgLock]
     output = (await captureOutput proc).trim()
 
     header = 'jison output:'
