@@ -12,6 +12,10 @@ jobs:
       matrix:
         operating-system: [ubuntu-latest, macos-latest, windows-latest]
         node-version: [12.x, 14.x, 16.x, 18.x, 20.x]
+        # The 'setup-node' action has become unable to locate versions for macos ("darwin") on arm64
+        # for some reason. Processor architecture shouldn't affect any of our testing, so we can pin
+        # this for now.
+        architecture: [x64]
 
     steps:
     - uses: actions/checkout@v4
@@ -20,6 +24,8 @@ jobs:
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'npm'
+        cache-dependency-path: 'package-lock.json'
+        architecture: ${{ matrix.architecture }}
 
     - run: npm ci
 
